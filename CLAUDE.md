@@ -59,3 +59,23 @@ only goes red with both guards removed) before concluding the test is fine.
 structured output via `output_config.format`, and server-side refusal
 fallbacks (`fallbacks: "default"`, beta `server-side-fallback-2026-07-01`). The
 SDK sends the key as `Authorization: Bearer` in 1.x.
+
+## Deploying
+
+Claude deploys; Max does not. Keys come from the Claude Code environment
+(`FLY_API_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and reach the app only
+through `flyctl secrets set`; never echo or commit them. From a session:
+
+```bash
+flyctl apps create catch-maxsenica-sys --org personal            # first time only
+flyctl volumes create catch_data --size 1 --region fra --app catch-maxsenica-sys --yes   # first time only
+flyctl secrets set --app catch-maxsenica-sys --stage APP_SECRET=$(openssl rand -hex 32) \
+  PUBLIC_URL=https://catch-maxsenica-sys.fly.dev                  # APP_SECRET first time only: changing it orphans saved tokens
+flyctl secrets set --app catch-maxsenica-sys --stage ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" OPENAI_API_KEY="$OPENAI_API_KEY"
+flyctl deploy --remote-only --app catch-maxsenica-sys --ha=false
+curl -fsS https://catch-maxsenica-sys.fly.dev/healthz              # extractor must not say "mock"
+```
+
+`.github/workflows/deploy.yml` does the same from GitHub Actions if a
+`FLY_API_TOKEN` repository secret is ever added; until then it skips, green.
+Always one machine (`--ha=false`): SQLite and the job queue are in-process.
