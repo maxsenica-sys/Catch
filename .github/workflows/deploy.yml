@@ -1,0 +1,92 @@
+name: Deploy
+
+# Deploys to Fly.io after CI passes on main, or by hand (Actions → Deploy → Run workflow).
+#
+# One-time setup, all in GitHub → Settings → Secrets and variables → Actions:
+#   Secrets:   FLY_API_TOKEN       (required)  fly.io dashboard → Tokens → Create org token
+#              ANTHROPIC_API_KEY   (optional)  reads screenshots; without it: offline mode
+#              OPENAI_API_KEY      (optional)  transcribes voice notes
+#              INVITE_CODE         (optional)  lets other people sign up with this code
+#   Variables: FLY_APP             (optional)  app name, default catch-<owner>
+#              FLY_REGION          (optional)  default fra (Frankfurt)
+#
+# Everything else is created on the first run and left alone afterwards: the app,
+# its 1 GB volume, and APP_SECRET (generated once; changing it would make every
+# saved integration token unreadable). Without FLY_API_TOKEN the job skips, green.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      APP: ${{ vars.FLY_APP || format('catch-{0}', github.repository_owner) }}
+      REGION: ${{ vars.FLY_REGION || 'fra' }}
+    steps:
+      - name: Skip until Fly is connected
+        if: env.FLY_API_TOKEN == ''
+        run: echo "::notice::FLY_API_TOKEN is not set, so nothing was deployed. See the comment at the top of deploy.yml."
+
+      - uses: actions/checkout@v4
+        if: env.FLY_API_TOKEN != ''
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+        if: env.FLY_API_TOKEN != ''
+
+      - name: Create the app and its volume (first run only)
+        if: env.FLY_API_TOKEN != ''
+        run: |
+          APP=$(echo "$APP" | tr '[:upper:]' '[:lower:]')
+          echo "APP=$APP" >> "$GITHUB_ENV"
+          if ! flyctl status --app "$APP" >/dev/null 2>&1; then
+            flyctl apps create "$APP" --org personal
+          fi
+          if [ "$(flyctl volumes list --app "$APP" --json | jq 'map(select(.name == "catch_data")) | length')" = "0" ]; then
+            flyctl volumes create catch_data --size 1 --region "$REGION" --app "$APP" --yes
+          fi
+
+      - name: Secrets
+        if: env.FLY_API_TOKEN != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          INVITE_CODE: ${{ secrets.INVITE_CODE }}
+        run: |
+          existing=$(flyctl secrets list --app "$APP" --json | jq -r '.[].Name // .[].name')
+          args=("PUBLIC_URL=https://$APP.fly.dev")
+          if ! grep -qx APP_SECRET <<< "$existing"; then args+=("APP_SECRET=$(openssl rand -hex 32)"); fi
+          [ -n "$ANTHROPIC_API_KEY" ] && args+=("ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
+          [ -n "$OPENAI_API_KEY" ] && args+=("OPENAI_API_KEY=$OPENAI_API_KEY")
+          [ -n "$INVITE_CODE" ] && args+=("INVITE_CODE=$INVITE_CODE")
+          flyctl secrets set "${args[@]}" --app "$APP" --stage
+
+      - name: Deploy
+        if: env.FLY_API_TOKEN != ''
+        run: flyctl deploy --remote-only --app "$APP" --primary-region "$REGION" --ha=false
+
+      - name: Check it answers
+        if: env.FLY_API_TOKEN != ''
+        run: |
+          for i in $(seq 1 30); do
+            if out=$(curl -fsS "https://$APP.fly.dev/healthz"); then
+              echo "$out"
+              echo "::notice::Catch is live at https://$APP.fly.dev"
+              exit 0
+            fi
+            sleep 5
+          done
+          flyctl logs --app "$APP" --no-tail | tail -50
+          exit 1

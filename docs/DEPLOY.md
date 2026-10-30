@@ -23,20 +23,42 @@ See `.env.example` for everything. The minimum for a real deployment:
 Check what is live at `GET /healthz`: it names the transcriber and extractor in
 use (`mock` means offline).
 
-## Option A: Fly.io (recommended; about ten minutes)
+## Option A: Fly.io, deployed by GitHub (recommended)
 
-```bash
-fly launch --no-deploy --copy-config         # uses fly.toml; pick a name and region
-fly volumes create catch_data --size 1       # 1 GB holds thousands of captures
-fly secrets set APP_SECRET=$(openssl rand -hex 32) \
-  ANTHROPIC_API_KEY=sk-ant-... OPENAI_API_KEY=sk-... \
-  PUBLIC_URL=https://<your-app>.fly.dev INVITE_CODE=<something>
-fly deploy
-```
+`.github/workflows/deploy.yml` deploys after every green CI run on `main`. The
+first run creates the app, its 1 GB volume and `APP_SECRET`; later runs only
+deploy. Keys live in GitHub's encrypted secrets and Fly's, never in the repo.
+
+1. Make a Fly.io account (a card is required) at https://fly.io/app/sign-up.
+2. Fly dashboard → **Tokens** → create an **org token**. Copy it.
+3. GitHub repo → **Settings → Secrets and variables → Actions → New
+   repository secret**:
+   - `FLY_API_TOKEN`: the token (required)
+   - `ANTHROPIC_API_KEY`: reads screenshots (optional; offline mode without it)
+   - `OPENAI_API_KEY`: transcribes voice (optional)
+   - `INVITE_CODE`: lets other people join (optional)
+4. **Actions → Deploy → Run workflow.** About three minutes. The run ends with
+   `Catch is live at https://catch-<owner>.fly.dev`.
+
+Optional repository *variables* (same page, Variables tab): `FLY_APP` to
+choose the name, `FLY_REGION` for the region (default `fra`, Frankfurt;
+`syd` for Sydney).
+
+Adding or changing a key later: update the GitHub secret, then run the Deploy
+workflow again.
 
 `fly.toml` keeps one machine always running (`auto_stop_machines = "off"`):
 the follow-up sweep and Todoist sync run on timers inside the process, so a
 stopped machine would stop chasing people.
+
+### By hand, if you prefer
+
+```bash
+fly apps create catch-<you> && fly volumes create catch_data --size 1 --region fra --app catch-<you>
+fly secrets set --app catch-<you> APP_SECRET=$(openssl rand -hex 32) PUBLIC_URL=https://catch-<you>.fly.dev \
+  ANTHROPIC_API_KEY=sk-ant-... OPENAI_API_KEY=sk-...
+fly deploy --app catch-<you> --ha=false
+```
 
 ## Option B: Railway / Render
 

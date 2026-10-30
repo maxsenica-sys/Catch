@@ -1,9 +1,8 @@
-# Fly.io: fly launch --no-deploy --copy-config && fly volumes create catch_data --size 1
-#         fly secrets set APP_SECRET=$(openssl rand -hex 32) ANTHROPIC_API_KEY=... OPENAI_API_KEY=...
-#         fly deploy
-# One machine only: SQLite lives on the volume, and the job queue runs in-process.
-app = "catch-app"
-primary_region = "syd"
+# Fly.io. Normally deployed by .github/workflows/deploy.yml, which passes --app and
+# --primary-region explicitly; the values here are the defaults for running flyctl by hand.
+# One machine only (--ha=false): SQLite lives on the volume and the job queue runs in-process.
+app = "catch-maxsenica-sys"
+primary_region = "fra"
 
 [build]
 
