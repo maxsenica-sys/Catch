@@ -1,0 +1,31 @@
+# Fly.io: fly launch --no-deploy --copy-config && fly volumes create catch_data --size 1
+#         fly secrets set APP_SECRET=$(openssl rand -hex 32) ANTHROPIC_API_KEY=... OPENAI_API_KEY=...
+#         fly deploy
+# One machine only: SQLite lives on the volume, and the job queue runs in-process.
+app = "catch-app"
+primary_region = "syd"
+
+[build]
+
+[env]
+  NODE_ENV = "production"
+  DATA_DIR = "/data"
+  PORT = "8787"
+  SIGNUP_MODE = "invite"
+
+[[mounts]]
+  source = "catch_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    method = "GET"
+    path = "/healthz"

@@ -1,0 +1,14 @@
+# Local or single-server run: docker compose up -d
+# Put it behind HTTPS (Caddy, Cloudflare Tunnel, your host's proxy): phones
+# only allow the microphone on https:// pages.
+services:
+  catch:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    env_file: .env
+    volumes:
+      - catch-data:/data
+volumes:
+  catch-data:

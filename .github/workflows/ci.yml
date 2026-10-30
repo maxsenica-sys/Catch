@@ -1,0 +1,32 @@
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Browser end-to-end
+        run: |
+          npm i --no-save playwright
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t catch:ci .
+      - name: Container starts and answers /healthz
+        run: |
+          docker run -d --name catch -p 8787:8787 -e APP_SECRET=$(openssl rand -hex 32) catch:ci
+          for i in $(seq 1 30); do curl -fs localhost:8787/healthz && exit 0; sleep 1; done
+          docker logs catch; exit 1
