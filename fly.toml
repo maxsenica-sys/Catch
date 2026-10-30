@@ -28,3 +28,9 @@ primary_region = "fra"
     timeout = "5s"
     method = "GET"
     path = "/healthz"
+
+# 512 MB: a capture holds a few screenshots in memory while it is read.
+# 256 MB (Fly's default) is tight once two captures process at once.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
