@@ -4,3 +4,4 @@ data/
 web/dist/
 .env
 *.log
+__pycache__/
