@@ -34,8 +34,10 @@ def gql(query, variables=None):
 M = f"https://api.machines.dev/v1/apps/{APP}"
 
 # 1. Public addresses -----------------------------------------------------------
-ips = gql("query($a:String!){ app(name:$a){ ipAddresses{ nodes{ address type } } } }", {"a": APP})["app"]["ipAddresses"]["nodes"]
-have = {ip["type"] for ip in ips}
+app_ips = gql("query($a:String!){ app(name:$a){ sharedIpAddress ipAddresses{ nodes{ address type } } } }", {"a": APP})["app"]
+have = {ip["type"] for ip in app_ips["ipAddresses"]["nodes"]}
+if app_ips.get("sharedIpAddress"):
+    have.add("shared_v4")  # shared v4 is not listed among ipAddresses
 for t in ("shared_v4", "v6"):
     if t not in have:
         gql("mutation($i:AllocateIPAddressInput!){ allocateIpAddress(input:$i){ app{ name } } }", {"i": {"appId": APP, "type": t}})

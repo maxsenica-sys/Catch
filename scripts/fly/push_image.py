@@ -20,50 +20,6 @@ def req(method, url, headers=None, data=None):
     except urllib.error.HTTPError as e:
         return e.code, {k.lower(): v for k, v in e.headers.items()}, e.read()
 
-# ---- pull base ---------------------------------------------------------------
-st, _, body = req("GET", "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/node:pull")
-hub = {"Authorization": "Bearer " + json.loads(body)["token"]}
-ACCEPT = ", ".join([
-    "application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json",
-    "application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"])
-st, _, body = req("GET", "https://registry-1.docker.io/v2/library/node/manifests/22-slim", {**hub, "Accept": ACCEPT})
-assert st == 200, (st, body[:200])
-index = json.loads(body)
-entry = next(m for m in index["manifests"] if m["platform"]["os"] == "linux" and m["platform"]["architecture"] == "amd64")
-st, _, body = req("GET", f"https://registry-1.docker.io/v2/library/node/manifests/{entry['digest']}", {**hub, "Accept": ACCEPT})
-base = json.loads(body)
-st, _, cfg_raw = req("GET", f"https://registry-1.docker.io/v2/library/node/blobs/{base['config']['digest']}", hub)
-config = json.loads(cfg_raw)
-print("base:", entry["digest"][:19], "layers:", len(base["layers"]))
-
-# ---- app layer ---------------------------------------------------------------
-raw = io.BytesIO()
-with tarfile.open(fileobj=raw, mode="w", format=tarfile.PAX_FORMAT) as tar:
-    def norm(ti):
-        ti.uid = ti.gid = 0
-        ti.uname = ti.gname = "root"
-        ti.mtime = 0
-        return ti
-    tar.add(SRC, arcname="app", filter=norm)
-    data_dir = tarfile.TarInfo("data"); data_dir.type = tarfile.DIRTYPE; data_dir.mode = 0o755
-    tar.addfile(norm(data_dir))
-raw_bytes = raw.getvalue()
-gz = gzip.compress(raw_bytes, mtime=0)
-diff_id = "sha256:" + hashlib.sha256(raw_bytes).hexdigest()
-layer_digest = "sha256:" + hashlib.sha256(gz).hexdigest()
-print(f"app layer: {len(gz)/1e6:.1f} MB")
-
-c = config["config"]
-env = [e for e in c.get("Env", []) if not e.split("=")[0] in ("NODE_ENV", "DATA_DIR", "PORT", "NODE_NO_WARNINGS")]
-c["Env"] = env + ["NODE_ENV=production", "DATA_DIR=/data", "PORT=8787", "NODE_NO_WARNINGS=1"]
-c["WorkingDir"] = "/app"
-c["Cmd"] = ["node", "server/index.ts"]
-c["ExposedPorts"] = {"8787/tcp": {}}
-config["rootfs"]["diff_ids"].append(diff_id)
-config.setdefault("history", []).append({"created_by": "catch: COPY app /app", "comment": "built without docker"})
-new_cfg = json.dumps(config, separators=(",", ":")).encode()
-cfg_digest = "sha256:" + hashlib.sha256(new_cfg).hexdigest()
-
 # ---- push --------------------------------------------------------------------
 REG = "https://registry.fly.io"
 basic = "Basic " + base64.b64encode(f"x:{TOKEN}".encode()).decode()
@@ -101,7 +57,90 @@ def push_blob(digest, data):
     assert st == 201, ("upload put", st, b[:200])
     return "pushed"
 
+ACCEPT = ", ".join([
+    "application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json",
+    "application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"])
+
+# ---- base image ----------------------------------------------------------------
+# Prefer the base already in Fly's registry from an earlier deploy: the sandbox
+# shares an IP with many others, so anonymous Docker Hub pulls hit its rate
+# limit. Docker Hub is only used for the very first deploy, or with FRESH_BASE=1
+# to pick up a newer node:22-slim.
+def base_from_fly():
+    st, _, b = authed("GET", f"{REG}/v2/{APP}/tags/list")
+    if st != 200:
+        return None
+    tags = sorted(t for t in (json.loads(b).get("tags") or []) if t.startswith("deploy-"))
+    if not tags:
+        return None
+    st, _, b = authed("GET", f"{REG}/v2/{APP}/manifests/{tags[-1]}", {"Accept": ACCEPT})
+    if st != 200:
+        return None
+    prev = json.loads(b)
+    st, _, c = authed("GET", f"{REG}/v2/{APP}/blobs/{prev['config']['digest']}")
+    if st != 200:
+        return None
+    cfg = json.loads(c)
+    hist = cfg.get("history", [])
+    if not hist or not str(hist[-1].get("created_by", "")).startswith("catch:"):
+        return None  # not an image this script made; do not guess which layer to drop
+    prev["layers"] = prev["layers"][:-1]
+    cfg["rootfs"]["diff_ids"] = cfg["rootfs"]["diff_ids"][:-1]
+    cfg["history"] = hist[:-1]
+    return prev, cfg, tags[-1]
+
+def base_from_hub():
+    st, _, body = req("GET", "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/node:pull")
+    hub = {"Authorization": "Bearer " + json.loads(body)["token"]}
+    st, _, body = req("GET", "https://registry-1.docker.io/v2/library/node/manifests/22-slim", {**hub, "Accept": ACCEPT})
+    assert st == 200, ("docker hub", st, body[:200])
+    index = json.loads(body)
+    entry = next(m for m in index["manifests"] if m["platform"]["os"] == "linux" and m["platform"]["architecture"] == "amd64")
+    st, _, body = req("GET", f"https://registry-1.docker.io/v2/library/node/manifests/{entry['digest']}", {**hub, "Accept": ACCEPT})
+    m = json.loads(body)
+    st, _, cfg_raw = req("GET", f"https://registry-1.docker.io/v2/library/node/blobs/{m['config']['digest']}", hub)
+    return m, json.loads(cfg_raw), hub
+
+found = None if os.environ.get("FRESH_BASE") else base_from_fly()
+if found:
+    base, config, from_tag = found
+    hub = None
+    print(f"base: reused from registry.fly.io/{APP}:{from_tag}, layers: {len(base['layers'])}")
+else:
+    base, config, hub = base_from_hub()
+    print("base: node:22-slim from Docker Hub, layers:", len(base["layers"]))
+
+# ---- app layer ---------------------------------------------------------------
+raw = io.BytesIO()
+with tarfile.open(fileobj=raw, mode="w", format=tarfile.PAX_FORMAT) as tar:
+    def norm(ti):
+        ti.uid = ti.gid = 0
+        ti.uname = ti.gname = "root"
+        ti.mtime = 0
+        return ti
+    tar.add(SRC, arcname="app", filter=norm)
+    data_dir = tarfile.TarInfo("data"); data_dir.type = tarfile.DIRTYPE; data_dir.mode = 0o755
+    tar.addfile(norm(data_dir))
+raw_bytes = raw.getvalue()
+gz = gzip.compress(raw_bytes, mtime=0)
+diff_id = "sha256:" + hashlib.sha256(raw_bytes).hexdigest()
+layer_digest = "sha256:" + hashlib.sha256(gz).hexdigest()
+print(f"app layer: {len(gz)/1e6:.1f} MB")
+
+c = config["config"]
+env = [e for e in c.get("Env", []) if not e.split("=")[0] in ("NODE_ENV", "DATA_DIR", "PORT", "NODE_NO_WARNINGS")]
+c["Env"] = env + ["NODE_ENV=production", "DATA_DIR=/data", "PORT=8787", "NODE_NO_WARNINGS=1"]
+c["WorkingDir"] = "/app"
+c["Cmd"] = ["node", "server/index.ts"]
+c["ExposedPorts"] = {"8787/tcp": {}}
+config["rootfs"]["diff_ids"].append(diff_id)
+config.setdefault("history", []).append({"created_by": "catch: COPY app /app", "comment": "built without docker"})
+new_cfg = json.dumps(config, separators=(",", ":")).encode()
+cfg_digest = "sha256:" + hashlib.sha256(new_cfg).hexdigest()
+
 for layer in base["layers"]:
+    if hub is None:
+        continue  # already in Fly's registry
     st, _, blob = req("GET", f"https://registry-1.docker.io/v2/library/node/blobs/{layer['digest']}", hub)
     assert st == 200 and "sha256:" + hashlib.sha256(blob).hexdigest() == layer["digest"], "base layer download failed"
     print("base layer", layer["digest"][:19], push_blob(layer["digest"], blob))
