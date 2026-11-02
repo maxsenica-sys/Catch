@@ -62,24 +62,32 @@ SDK sends the key as `Authorization: Bearer` in 1.x.
 
 ## Deploying
 
-Claude deploys; Max does not. Keys come from the Claude Code environment
-(`FLY_API_TOKEN`, `CATCH_ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and reach the app only
-through `flyctl secrets set`; never echo or commit them. From a session:
+Claude deploys; Max does not. **Live at https://catch-maxsenica-sys.fly.dev**
+(Fly app `catch-maxsenica-sys`, region `fra`, first deployed 02/11/2026).
 
 ```bash
-flyctl apps create catch-maxsenica-sys --org personal            # first time only
-flyctl volumes create catch_data --size 1 --region fra --app catch-maxsenica-sys --yes   # first time only
-flyctl secrets set --app catch-maxsenica-sys --stage APP_SECRET=$(openssl rand -hex 32) \
-  PUBLIC_URL=https://catch-maxsenica-sys.fly.dev                  # APP_SECRET first time only: changing it orphans saved tokens
-flyctl secrets set --app catch-maxsenica-sys --stage ANTHROPIC_API_KEY="$CATCH_ANTHROPIC_API_KEY" OPENAI_API_KEY="$OPENAI_API_KEY"
-flyctl deploy --remote-only --app catch-maxsenica-sys --ha=false
-curl -fsS https://catch-maxsenica-sys.fly.dev/healthz              # extractor must not say "mock"
+bash scripts/deploy.sh
 ```
 
-`.github/workflows/deploy.yml` does the same from GitHub Actions if a
-`FLY_API_TOKEN` repository secret is ever added; until then it skips, green.
-Always one machine (`--ha=false`): SQLite and the job queue are in-process.
+That is the whole procedure, and it is safe to re-run: it builds, pushes an
+image, and creates-or-updates the IPs, secrets, volume and the one machine,
+then waits for `/healthz`. Check `extractor` in the output: `mock` means the
+Anthropic key did not reach the app.
 
-The session's Anthropic key is `CATCH_ANTHROPIC_API_KEY`, not
-`ANTHROPIC_API_KEY`: Claude Code reads the latter for itself. Inside the app it
-is still `ANTHROPIC_API_KEY` (set by `flyctl secrets set`, as above).
+**Why not flyctl or Docker:** Claude Code cloud sessions block running
+downloaded binaries (flyctl was refused twice) and have no Docker daemon. So
+`scripts/fly/push_image.py` assembles the image itself (node:22-slim + one
+`/app` layer) and pushes it to `registry.fly.io`, and `scripts/fly/setup.py`
+does the rest through Fly's GraphQL and Machines APIs. If flyctl ever becomes
+available, `fly deploy --ha=false` with `fly.toml` does the same job.
+
+Keys come from the session environment and reach the app only as Fly secrets;
+never echo or commit them. The session's Anthropic key is
+`CATCH_ANTHROPIC_API_KEY`, not `ANTHROPIC_API_KEY` — Claude Code reads the
+latter for itself. Inside the app it is set as `ANTHROPIC_API_KEY`.
+`APP_SECRET` is generated on the first run only: changing it orphans every
+saved integration token.
+
+Always one machine: SQLite and the job queue are in-process.
+`.github/workflows/deploy.yml` can deploy from Actions if a `FLY_API_TOKEN`
+repository secret is ever added; until then it skips, green.
