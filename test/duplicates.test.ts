@@ -96,3 +96,43 @@ test("automatic removal runs with the 15-minute sweep only when switched on", as
     await app.close();
   }
 });
+
+test("a repeated screenshot with nothing new is filed as a repeat without being read again", async () => {
+  const app = makeApp();
+  try {
+    const s = await signup(app);
+    app.setExtraction(extraction({
+      people: [person({ ref: "p1", name: "Riley Palmer" })],
+      actions: [action({ title: "Upload Riley's review to the website", person_ref: "p1" })],
+    }));
+    const first = await s.capture({ images: [PNG], transcript: "This is Riley, he just gave me a review I need to upload on the Project V website" });
+    await settle(app);
+    assert.equal(app.extractCalls.length, 1);
+
+    // Same screenshot, same thing said (worded a little differently): skipped.
+    const again = await s.capture({ images: [PNG], transcript: "This is Riley, he gave me a review to upload on the Project V website" });
+    // Same screenshot, nothing said: skipped.
+    const bare = await s.capture({ images: [PNG] });
+    await settle(app);
+    assert.equal(app.extractCalls.length, 1, "neither repeat was sent to the model");
+    for (const c of [again, bare]) {
+      const cap = (await s.json(`/api/captures/${c.capture.id}`)).capture;
+      assert.equal(cap.status, "done");
+      assert.match(cap.summary, /Same screenshot as the capture of/);
+      assert.equal(cap.tasks.length, 0);
+    }
+    assert.equal(one<any>(app.ctx.db, "SELECT COUNT(*) AS n FROM tasks")!.n, 1);
+
+    // Same screenshot, something NEW said: processed, because it is new information.
+    app.setExtraction(extraction({ people: [person({ ref: "p1", name: "Riley Palmer", stage: "booked" })] }));
+    await s.capture({ images: [PNG], transcript: "Riley replied and booked a session Saturday at nine at the gym" });
+    // A different screenshot: always processed.
+    await s.capture({ images: [OTHER_PNG] });
+    await settle(app);
+    assert.equal(app.extractCalls.length, 3);
+    assert.equal(one<any>(app.ctx.db, "SELECT stage FROM contacts")!.stage, "booked");
+    assert.ok(first.capture.id);
+  } finally {
+    await app.close();
+  }
+});

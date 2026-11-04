@@ -85,6 +85,24 @@ export async function processCapture(ctx: Ctx, captureId: string): Promise<void>
       update(db, "captures", cap.id, { transcript });
     }
 
+    // The same screenshot sent again, with nothing new said about it, is filed
+    // as a repeat without reading it a second time: no model call, no cost,
+    // and nothing created twice. A new voice note or text is new information
+    // ("she replied, booked Saturday") and is processed as normal, where the
+    // task-level duplicate check still stops copies of existing tasks.
+    const repeat = findRepeat(db, user.id, cap.id, transcript ?? "", cap.note);
+    if (repeat) {
+      const when = new Date(repeat.created_at).toLocaleDateString("en-AU", { day: "numeric", month: "short", timeZone: user.timezone });
+      update(db, "captures", cap.id, {
+        status: "done",
+        summary: `Same screenshot as the capture of ${when}, already filed. Nothing new, so nothing was added.`,
+        category: repeat.category,
+        error: null,
+        processed_at: nowIso(),
+      });
+      return;
+    }
+
     const images = await Promise.all(
       files.filter((f) => f.kind === "image").map(async (f) => ({ mime: f.mime, data: await ctx.storage.read(f.path) })),
     );
@@ -285,6 +303,35 @@ export function applyExtraction(db: DB, user: UserRow, cap: CaptureRow, ex: Extr
     processed_at: now,
   });
   return result;
+}
+
+/**
+ * An earlier filed capture whose screenshots include every screenshot of this
+ * one (byte-identical), where this one adds nothing new: no voice or text, or
+ * voice/text that says about the same as that capture's did.
+ */
+export function findRepeat(db: DB, userId: string, capId: string, transcript: string, note: string): { id: string; created_at: string; category: string | null } | undefined {
+  const mine = all<{ sha256: string }>(db, "SELECT sha256 FROM capture_files WHERE capture_id = ? AND kind = 'image'", capId).map((f) => f.sha256);
+  if (mine.length === 0) return undefined;
+  const said = `${transcript} ${note}`.trim();
+  const since = new Date(Date.now() - 90 * 86_400_000).toISOString();
+  const earlier = all<{ id: string; created_at: string; category: string | null; transcript: string | null; note: string; shas: string }>(
+    db,
+    `SELECT c.id, c.created_at, c.category, c.transcript, c.note,
+       (SELECT group_concat(f.sha256) FROM capture_files f WHERE f.capture_id = c.id AND f.kind = 'image') AS shas
+     FROM captures c
+     WHERE c.user_id = ? AND c.id != ? AND c.status IN ('done', 'review') AND c.created_at > ?
+       AND EXISTS (SELECT 1 FROM capture_files f WHERE f.capture_id = c.id AND f.kind = 'image' AND f.sha256 = ?)
+     ORDER BY c.created_at`,
+    userId, capId, since, mine[0],
+  );
+  return earlier.find((e) => {
+    const theirs = new Set((e.shas ?? "").split(","));
+    if (!mine.every((h) => theirs.has(h))) return false;
+    if (!said) return true;
+    const before = `${e.transcript ?? ""} ${e.note}`.trim();
+    return !!before && titleSimilarity(said, before) >= DUPLICATE_TASK_SIMILARITY;
+  });
 }
 
 const STOPWORDS = new Set(["a", "an", "the", "to", "for", "of", "on", "in", "and", "with", "about", "re", "s", "my", "her", "his", "their", "them", "him"]);

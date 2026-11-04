@@ -99,7 +99,10 @@ export async function signup(app: Catch, email = "max@example.com", extra: Recor
       fd.append("client_id", fields.client_id ?? crypto.randomUUID());
       if (fields.category) fd.append("category", fields.category);
       if (fields.note) fd.append("note", fields.note);
-      for (const img of fields.images ?? [PNG]) fd.append("image", new Blob([new Uint8Array(img)], { type: "image/png" }), "s.png");
+      // A unique image per capture unless one is given: two captures in a test
+      // are different screenshots by default, so the repeat check stays out of
+      // tests that are about something else.
+      for (const img of fields.images ?? [Buffer.concat([PNG, Buffer.from(crypto.randomUUID())])]) fd.append("image", new Blob([new Uint8Array(img)], { type: "image/png" }), "s.png");
       if (fields.transcript) {
         fd.append("audio", new Blob([Buffer.from(MOCK_TRANSCRIPT_MARKER + fields.transcript)], { type: "audio/mp4" }), "v.m4a");
       }

@@ -6,6 +6,8 @@ Each case restores the file afterwards, even on failure.
 """
 import subprocess, sys
 cases = [
+  ("repeated screenshot read again", "server/pipeline/process.ts", "    if (repeat) {", "    if (false) {", "test/duplicates.test.ts"),
+  ("repeat check ignores new voice", "server/pipeline/process.ts", "    if (!said) return true;", "    return true;", "test/duplicates.test.ts"),
   ("calendar create not idempotent in the script", "server/integrations/gcal.ts", "if (seen && cal.getEventById(seen))", "if (false)", "test/gcal.test.ts"),
   ("calendar sent wall-clock, not an instant", "server/integrations/gcal.ts", "const start = localToUtc(ev.date, ev.start_time, c.user.timezone);", "const start = new Date(`${ev.date}T${ev.start_time}:00Z`);", "test/gcal.test.ts"),
   ("events never sent to the calendar", "server/pipeline/process.ts", 'enqueue(db, "deliver", { userId: user.id, event: "event.created", objectId: eventId });', "", "test/gcal.test.ts"),
