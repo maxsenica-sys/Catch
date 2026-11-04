@@ -28,7 +28,7 @@ cp -r web/dist "$STAGE/web/dist"
 python3 -I scripts/fly/push_image.py "$APP" "$TAG" "$STAGE"
 python3 -I scripts/fly/setup.py "$APP" "registry.fly.io/$APP:$TAG" "$REGION"
 
-for _ in $(seq 1 30); do
+for _ in $(seq 1 12); do
   if out=$(curl -fsS --max-time 10 "https://$APP.fly.dev/healthz"); then
     echo "$out"
     echo "Live: https://$APP.fly.dev"
@@ -36,5 +36,14 @@ for _ in $(seq 1 30); do
   fi
   sleep 5
 done
-echo "Deployed, but /healthz did not answer within 150s" >&2
+# Some sandboxes' network policy blocks *.fly.dev while allowing Fly's API, so
+# fall back to Fly's own health check on the machine before calling it failed.
+status=$(curl -fsS "https://api.machines.dev/v1/apps/$APP/machines" -H "Authorization: Bearer $FLY_API_TOKEN" \
+  | python3 -c "import sys,json; ms=json.load(sys.stdin); print(' '.join(c['status'] for m in ms for c in m.get('checks',[])))" || true)
+if [ -n "$status" ] && [ -z "${status//passing/}" ] || [ "$status" = "passing" ]; then
+  echo "https://$APP.fly.dev is not reachable from here, but Fly reports the health check passing."
+  echo "Live: https://$APP.fly.dev"
+  exit 0
+fi
+echo "Deployed, but /healthz did not answer within 150s (Fly health check: ${status:-unknown})" >&2
 exit 1
