@@ -12,9 +12,10 @@ import type { Integration, IntegrationCall, TaskPayload } from "./types.ts";
 import { IntegrationError } from "./types.ts";
 import { todoist } from "./todoist.ts";
 import { webhook } from "./webhook.ts";
+import { googleCalendar, type EventPayload } from "./gcal.ts";
 import { PermanentError } from "../jobs/queue.ts";
 
-export const INTEGRATIONS: Record<string, Integration> = { todoist, webhook };
+export const INTEGRATIONS: Record<string, Integration> = { todoist, google_calendar: googleCalendar, webhook };
 
 interface IntegrationRow {
   id: string;
@@ -216,6 +217,12 @@ export async function deliver(ctx: Ctx, payload: { userId: string; event: string
         if (!task) continue;
         await integ.taskClosed(c, task, prior?.external_id ?? null);
         recordDelivery(db, user.id, row.kind, "task", payload.objectId, null, "closed");
+      } else if (payload.event === "event.created" && integ.eventCreated) {
+        if (delivered(db, row.kind, "event", payload.objectId)) continue;
+        const ev = one<EventPayload>(db, "SELECT id, title, date, start_time, end_time, location, notes FROM events WHERE id = ?", payload.objectId);
+        if (!ev) continue;
+        const externalId = await integ.eventCreated(c, ev);
+        recordDelivery(db, user.id, row.kind, "event", payload.objectId, externalId, "sent");
       } else if (payload.event === "capture.processed" && integ.captureProcessed) {
         if (delivered(db, row.kind, "capture", payload.objectId)) continue;
         const data = capturePayload(ctx, payload.objectId);

@@ -6,6 +6,11 @@ Each case restores the file afterwards, even on failure.
 """
 import subprocess, sys
 cases = [
+  ("calendar create not idempotent in the script", "server/integrations/gcal.ts", "if (seen && cal.getEventById(seen))", "if (false)", "test/gcal.test.ts"),
+  ("calendar sent wall-clock, not an instant", "server/integrations/gcal.ts", "const start = localToUtc(ev.date, ev.start_time, c.user.timezone);", "const start = new Date(`${ev.date}T${ev.start_time}:00Z`);", "test/gcal.test.ts"),
+  ("events never sent to the calendar", "server/pipeline/process.ts", 'enqueue(db, "deliver", { userId: user.id, event: "event.created", objectId: eventId });', "", "test/gcal.test.ts"),
+  ("feed still lists events Google has", "server/app.ts", "AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.integration = 'google_calendar'", "AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.integration = 'nothing'", "test/gcal.test.ts"),
+  ("script time zone not checked", "server/integrations/gcal.ts", "if (tz && tz !== c.user.timezone) {", "if (false) {", "test/gcal.test.ts"),
   ("channel label dropped", "server/integrations/todoist.ts", "labels: [task.categoryLabel, task.channel ? CHANNEL_LABELS[task.channel] : null]", "labels: [task.categoryLabel, null]", "test/integrations.test.ts"),
   ("migration overwrites customised category", "server/db/migrations.ts", " WHERE key = 'instagram' AND guidance = ", " WHERE key = 'instagram' OR guidance = ", "test/pipeline.test.ts"),
   ("duplicate cleanup does nothing", "server/pipeline/duplicates.ts", "    if (group) group.remove.push(t);", "    if (false) group.remove.push(t);", "test/duplicates.test.ts"),

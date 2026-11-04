@@ -216,3 +216,4 @@ section { margin: 22px 0; }
 .toast { background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-weight: 600; font-size: 14px; max-width: 90vw; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3); }
 .toast.error { background: var(--bad); color: #fff; }
 .dup-group { border-top: 1px solid var(--line); padding: 8px 0; }
+.steps { padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }

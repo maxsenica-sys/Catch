@@ -1,4 +1,5 @@
 import type { Ctx, UserRow } from "../context.ts";
+import type { EventPayload } from "./gcal.ts";
 
 export interface Field {
   key: string;
@@ -49,6 +50,8 @@ export interface Integration {
   taskCreated?(call: IntegrationCall, task: TaskPayload): Promise<string | null>;
   taskClosed?(call: IntegrationCall, task: TaskPayload, externalId: string | null): Promise<void>;
   captureProcessed?(call: IntegrationCall, payload: Record<string, unknown>): Promise<void>;
+  /** An appointment was filed. Returns the external id to remember. */
+  eventCreated?(call: IntegrationCall, event: EventPayload): Promise<string | null>;
   /** Pull changes made on the other side (e.g. tasks ticked in Todoist). */
   poll?(call: IntegrationCall): Promise<void>;
 }

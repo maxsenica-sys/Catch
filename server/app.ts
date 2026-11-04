@@ -100,7 +100,11 @@ export function createCatch(
     if (!user) return c.text("Not found", 404);
     const since = new Date(Date.now() - 60 * 86_400_000).toISOString().slice(0, 10);
     const events = all<FeedEvent>(db,
-      "SELECT id, title, date, start_time, end_time, location, notes, updated_at FROM events WHERE user_id = ? AND date >= ? ORDER BY date",
+      // Events already pushed into Google Calendar directly are left out, so a
+      // calendar subscribed to this feed as well does not show them twice.
+      `SELECT id, title, date, start_time, end_time, location, notes, updated_at FROM events e WHERE user_id = ? AND date >= ?
+         AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.integration = 'google_calendar' AND d.object_type = 'event' AND d.object_id = e.id)
+       ORDER BY date`,
       user.id, since);
     if (c.req.query("tasks") === "1") {
       const tasks = all<Record<string, string>>(db,

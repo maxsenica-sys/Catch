@@ -6,7 +6,8 @@ import { createApiToken } from "./auth.ts";
 import { all, id, insert, nowIso, one, parseJson, run, update } from "../db/db.ts";
 import { listCategories, slugKey } from "../categories.ts";
 import { isValidTimeZone, todayIn } from "../pipeline/dates.ts";
-import { INTEGRATIONS, describeIntegrations, saveIntegration, testIntegration } from "../integrations/index.ts";
+import { INTEGRATIONS, describeIntegrations, readConfig, saveIntegration, testIntegration } from "../integrations/index.ts";
+import { appsScript } from "../integrations/gcal.ts";
 import { enqueue } from "../jobs/queue.ts";
 import { randomToken } from "../crypto.ts";
 import { findDuplicates, removeDuplicates } from "../pipeline/duplicates.ts";
@@ -152,6 +153,22 @@ export function settingsRoutes(ctx: Ctx) {
     }
   });
 
+  /**
+   * The Apps Script to paste, with this user's key already inside. The key is
+   * generated on first request and kept, so fetching the script twice gives
+   * the same one and an already-deployed script keeps working.
+   */
+  app.get("/integrations/google_calendar/script", (c) => {
+    const u = c.get("user");
+    const row = one<{ config_enc: string }>(ctx.db, "SELECT config_enc FROM integrations WHERE user_id = ? AND kind = 'google_calendar'", u.id);
+    let key = row ? readConfig(ctx.config.appSecret, row).key : "";
+    if (!key) {
+      key = randomToken("", 24);
+      saveIntegration(ctx.db, ctx.config.appSecret, u.id, "google_calendar", { config: { key } });
+    }
+    return c.text(appsScript(key, u.timezone));
+  });
+
   /** Push every open task that has not reached an integration yet (e.g. after connecting Todoist). */
   app.post("/integrations/:kind/backfill", (c) => {
     const u = c.get("user");
@@ -160,8 +177,13 @@ export function settingsRoutes(ctx: Ctx) {
       `SELECT t.id FROM tasks t WHERE t.user_id = ? AND t.status = 'open'
        AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.integration = ? AND d.object_type = 'task' AND d.object_id = t.id)`, u.id, kind);
     for (const t of tasks) enqueue(ctx.db, "deliver", { userId: u.id, event: "task.created", objectId: t.id });
+    // Upcoming appointments too, so connecting a calendar picks up what is already booked.
+    const events = all<{ id: string }>(ctx.db,
+      `SELECT e.id FROM events e WHERE e.user_id = ? AND e.date >= ?
+       AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.integration = ? AND d.object_type = 'event' AND d.object_id = e.id)`, u.id, todayIn(u.timezone), kind);
+    for (const e of events) enqueue(ctx.db, "deliver", { userId: u.id, event: "event.created", objectId: e.id });
     ctx.worker.kick();
-    return c.json({ queued: tasks.length });
+    return c.json({ queued: tasks.length + events.length });
   });
 
   // API tokens -------------------------------------------------------------

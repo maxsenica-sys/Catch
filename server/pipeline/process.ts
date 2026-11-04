@@ -106,6 +106,9 @@ export async function processCapture(ctx: Ctx, captureId: string): Promise<void>
     for (const taskId of result.tasks) {
       enqueue(db, "deliver", { userId: user.id, event: "task.created", objectId: taskId });
     }
+    for (const eventId of result.events) {
+      enqueue(db, "deliver", { userId: user.id, event: "event.created", objectId: eventId });
+    }
     enqueue(db, "deliver", { userId: user.id, event: "capture.processed", objectId: cap.id });
     ctx.worker.kick();
   } catch (err) {

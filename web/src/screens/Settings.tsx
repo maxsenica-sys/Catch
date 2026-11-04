@@ -190,6 +190,7 @@ function Integrations() {
             </span>
           </div>
           <p class="muted small-text">{integ.description}</p>
+          {integ.kind === "google_calendar" && !integ.enabled && <GoogleCalendarSteps />}
           {integ.last_error && <p class="error-text">{integ.last_error}</p>}
           <div class="stack">
             {integ.fields.map((f) => (
@@ -352,6 +353,28 @@ function Duplicates({ state }: { state: AppState }) {
         ))}
       </div>
     </section>
+  );
+}
+
+/** One copy, one paste: the script already carries the key. Google's own sign-in does the rest. */
+function GoogleCalendarSteps() {
+  const copyScript = async () => {
+    try {
+      const res = await fetch("/api/integrations/google_calendar/script", { headers: { "X-Catch": "1" }, credentials: "same-origin" });
+      await navigator.clipboard.writeText(await res.text());
+      toast("Script copied");
+    } catch {
+      toast("Could not copy — try again", "error");
+    }
+  };
+  return (
+    <ol class="small-text steps">
+      <li><button class="small primary" onClick={() => void copyScript()}>Copy script</button></li>
+      <li>On a computer, open <b>script.google.com</b> → <b>New project</b> → select everything in the editor → paste → <b>Save</b>.</li>
+      <li><b>Deploy → New deployment</b> → gear icon → <b>Web app</b>. Execute as: <b>Me</b>. Who has access: <b>Anyone</b>. → <b>Deploy</b>.</li>
+      <li>Google asks for permission: <b>Authorize access</b> → your account → <b>Advanced</b> → <b>Go to … (unsafe)</b> → <b>Allow</b>. (It says unsafe only because it is your own script, not a published app.)</li>
+      <li>Copy the <b>Web app URL</b>, paste it below, tap <b>Connect</b>.</li>
+    </ol>
   );
 }
 
