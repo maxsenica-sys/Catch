@@ -21,7 +21,7 @@ import { deliver, pollIntegrations } from "./integrations/index.ts";
 import { icalendar, type FeedEvent } from "./feeds.ts";
 import { requireUser, type Env } from "./http/auth.ts";
 import { authRoutes } from "./http/routes-auth.ts";
-import { captureRoutes, fileRoutes } from "./http/routes-captures.ts";
+import { captureRoutes, fileRoutes, sweepDrafts } from "./http/routes-captures.ts";
 import { contactRoutes, exportRoutes, reviewRoutes, taskRoutes } from "./http/routes-people.ts";
 import { settingsRoutes } from "./http/routes-settings.ts";
 
@@ -52,6 +52,9 @@ export function createCatch(
     followups_sweep: async (job) => runSweepJob(ctx, String(job.payload.userId)),
     poll_integrations: (job) => pollIntegrations(ctx, String(job.payload.userId)),
     housekeeping: async () => purgeOldJobs(db),
+    drafts_sweep: async () => {
+      if (sweepDrafts(ctx) > 0) ctx.worker.kick();
+    },
   };
   ctx.worker = createWorker(db, handlers, {
     concurrency: config.workerConcurrency,
@@ -133,6 +136,10 @@ export function createCatch(
       everyUser("followups_sweep", 15);
       everyUser("poll_integrations", 5, "todoist");
       timers.push(setInterval(() => enqueue(db, "housekeeping", {}, { dedupeKey: "housekeeping" }), 6 * 60 * 60_000));
+      timers.push(setInterval(() => {
+        enqueue(db, "drafts_sweep", {}, { dedupeKey: "drafts_sweep", maxAttempts: 1 });
+        ctx.worker.kick();
+      }, 60_000));
     },
     async stop() {
       for (const t of timers) clearInterval(t);

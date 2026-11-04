@@ -182,6 +182,17 @@ export function applyExtraction(db: DB, user: UserRow, cap: CaptureRow, ex: Extr
     const contact = contactId ? one<{ category: string | null }>(db, "SELECT category FROM contacts WHERE id = ?", contactId) : undefined;
     const cat = categoryFor(cats, validCat(action.category) ?? contact?.category ?? captureCat?.key);
     const due = decideDue(action.due_date, today, cat?.followup_days ?? 3);
+    // The same DM screenshotted twice, or a follow-up capture about the same
+    // thing, must not stack up copies of one task. A near-identical open task
+    // for the same person absorbs it; a stated earlier date moves it forward.
+    const twin = findSimilarOpenTask(db, user.id, contactId, action.title);
+    if (twin) {
+      if (due.source === "stated" && (!twin.due_on || due.due_on < twin.due_on)) {
+        update(db, "tasks", twin.id, { due_on: due.due_on, due_source: "stated" });
+      }
+      if (contactId) contactsWithAction.add(contactId);
+      continue;
+    }
     const taskId = id("tsk");
     const handles = contactId ? handlesOf(db, contactId) : [];
     insert(db, "tasks", {
@@ -265,6 +276,35 @@ export function applyExtraction(db: DB, user: UserRow, cap: CaptureRow, ex: Extr
     processed_at: now,
   });
   return result;
+}
+
+const STOPWORDS = new Set(["a", "an", "the", "to", "for", "of", "on", "in", "and", "with", "about", "re", "s", "my", "her", "his", "their", "them", "him"]);
+
+export function titleWords(title: string): Set<string> {
+  return new Set(
+    title.toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "").split(/[^a-z0-9]+/).filter((w) => w && !STOPWORDS.has(w)),
+  );
+}
+
+/** Word-overlap similarity (Jaccard) between two task titles, 0..1. */
+export function titleSimilarity(a: string, b: string): number {
+  const x = titleWords(a);
+  const y = titleWords(b);
+  if (x.size === 0 || y.size === 0) return 0;
+  let both = 0;
+  for (const w of x) if (y.has(w)) both++;
+  return both / (x.size + y.size - both);
+}
+
+export const DUPLICATE_TASK_SIMILARITY = 0.6;
+
+function findSimilarOpenTask(db: DB, userId: string, contactId: string | null, title: string): { id: string; due_on: string | null } | undefined {
+  const open = all<{ id: string; title: string; due_on: string | null }>(
+    db,
+    `SELECT id, title, due_on FROM tasks WHERE user_id = ? AND status = 'open' AND ${contactId ? "contact_id = ?" : "contact_id IS NULL"}`,
+    ...(contactId ? [userId, contactId] : [userId]),
+  );
+  return open.find((t) => titleSimilarity(t.title, title) >= DUPLICATE_TASK_SIMILARITY);
 }
 
 /** "jess.sets_07" is a username standing in for a name, not a first name. */

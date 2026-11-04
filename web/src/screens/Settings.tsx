@@ -25,6 +25,7 @@ export function SettingsScreen({ state }: { state: AppState }) {
           <code>ANTHROPIC_API_KEY</code>{me.providers.transcriber === "mock" ? <> and <code>OPENAI_API_KEY</code></> : null} on the server and restart.
         </div>
       )}
+      <ShareShortcut />
       <Profile state={state} />
       <Categories state={state} />
       <Integrations />
@@ -218,6 +219,70 @@ function Integrations() {
           <button class="small" onClick={() => navigator.clipboard.writeText(feed).then(() => toast("Copied"))}>Copy</button>
           <button class="small" onClick={() => confirm("Make a new feed URL? The old one stops working.") && api("/api/feed/rotate", { method: "POST" }).then(load)}>New URL</button>
         </div>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The fastest capture route on an iPhone: start in Photos, select screenshots,
+ * Share → Catch, talk, tap. No app to open and no "Photo Library / Take Photo"
+ * menu, which iOS shows for every web photo picker and no web app can skip.
+ * The Shortcut uploads each screenshot to the open draft, records, and finishes it.
+ */
+function ShareShortcut() {
+  const [token, setToken] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const base = location.origin;
+  const copy = (text: string, what: string) => navigator.clipboard.writeText(text).then(() => toast(`${what} copied`));
+  return (
+    <section>
+      <div class="card">
+        <div class="card-head"><strong>Share from Photos (iPhone)</strong></div>
+        <p class="muted small-text">
+          The quickest way in: in <b>Photos</b>, select screenshots → <b>Share</b> → <b>Catch</b> → talk → tap to stop.
+          No app to open, no photo menu. Takes about 5 minutes to set up, once.
+        </p>
+        {!open ? (
+          <button class="primary small" onClick={() => setOpen(true)}>Show me how</button>
+        ) : (
+          <div class="stack">
+            <p><b>1.</b> Create the key the Shortcut uses:</p>
+            {token ? (
+              <div class="row-actions">
+                <input readOnly value={`Bearer ${token}`} onFocus={(e) => (e.target as HTMLInputElement).select()} />
+                <button class="small" onClick={() => void copy(`Bearer ${token}`, "Key")}>Copy key</button>
+              </div>
+            ) : (
+              <button class="small" onClick={async () => {
+                const r = await api("/api/tokens", { method: "POST", json: { name: "Share to Catch (iPhone)" } });
+                setToken(r.token);
+              }}>Create key</button>
+            )}
+            <p class="muted small-text">Shown once. Paste it straight into the Shortcut; if you lose it, make another.</p>
+            <p><b>2.</b> Open the <b>Shortcuts</b> app → <b>+</b> → name it <b>Catch</b>. Tap <b>ⓘ</b> → turn on <b>Show in Share Sheet</b>, and set it to receive <b>Images</b>.</p>
+            <p><b>3.</b> Add <b>Repeat with Each</b> (item: <i>Shortcut Input</i>). Inside it add:</p>
+            <ul class="small-text">
+              <li><b>Convert Image</b> → <i>Repeat Item</i> to <b>JPEG</b></li>
+              <li><b>Get Contents of URL</b> → URL below, Method <b>POST</b>, Header <b>Authorization</b> = your key, Request Body <b>Form</b>, add a <b>File</b> field named <code>image</code> = <i>Converted Image</i></li>
+            </ul>
+            <div class="row-actions">
+              <input readOnly value={`${base}/api/captures/draft`} />
+              <button class="small" onClick={() => void copy(`${base}/api/captures/draft`, "URL")}>Copy URL</button>
+            </div>
+            <p><b>4.</b> After <b>End Repeat</b>, add <b>Record Audio</b> → Start Recording <b>Immediately</b>, Finish Recording <b>On Tap</b>.</p>
+            <p><b>5.</b> Add another <b>Get Contents of URL</b> → URL below, Method <b>POST</b>, same <b>Authorization</b> header, Form with a <b>File</b> field named <code>audio</code> = <i>Recorded Audio</i>.</p>
+            <div class="row-actions">
+              <input readOnly value={`${base}/api/captures/draft/finish`} />
+              <button class="small" onClick={() => void copy(`${base}/api/captures/draft/finish`, "URL")}>Copy URL</button>
+            </div>
+            <p><b>6.</b> Add <b>Show Notification</b> → “Caught”. Done.</p>
+            <p class="muted small-text">
+              Use it: Photos → select screenshots → Share → Catch → talk → tap the stop button. It appears in your Inbox
+              seconds later. If you skip the recording, the screenshots are filed by themselves after 10 minutes.
+            </p>
+          </div>
+        )}
       </div>
     </section>
   );

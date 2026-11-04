@@ -79,7 +79,7 @@ export interface Task {
 export interface CaptureView {
   id: string;
   client_id: string;
-  status: "queued" | "processing" | "done" | "review" | "failed";
+  status: "draft" | "queued" | "processing" | "done" | "review" | "failed";
   category: string | null;
   category_hint: string | null;
   note: string;

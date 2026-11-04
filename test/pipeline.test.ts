@@ -235,3 +235,26 @@ test("a failing extractor retries, then marks the capture failed with the reason
     await app.close();
   }
 });
+
+test("the same task captured twice is not created twice; a different task for the same person is", async () => {
+  const app = makeApp();
+  try {
+    const s = await signup(app);
+    const riley = person({ ref: "p1", name: "Riley Palmer", handles: [{ platform: "instagram", handle: "riley.p", url: null }] });
+    app.setExtraction(extraction({ people: [riley], actions: [action({ title: "Upload Riley's 5-star Project V review to the website", person_ref: "p1", due_date: "2026-12-09" })] }));
+    await s.capture({});
+    await settle(app);
+    app.setExtraction(extraction({ people: [riley], actions: [
+      action({ title: "Upload Riley Palmer's 5-star review to the Project V website", person_ref: "p1", due_date: "2026-12-07" }),
+      action({ title: "Create content around Riley's Project V shoulder program review", person_ref: "p1" }),
+    ] }));
+    await s.capture({});
+    await settle(app);
+    const tasks = all<any>(app.ctx.db, "SELECT title, due_on FROM tasks ORDER BY created_at");
+    assert.equal(tasks.length, 2, JSON.stringify(tasks));
+    assert.equal(tasks[0].due_on, "2026-12-07", "the earlier stated date moved the existing task forward");
+    assert.match(tasks[1].title, /Create content/);
+  } finally {
+    await app.close();
+  }
+});

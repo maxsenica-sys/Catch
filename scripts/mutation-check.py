@@ -6,6 +6,10 @@ Each case restores the file afterwards, even on failure.
 """
 import subprocess, sys
 cases = [
+  ("duplicate tasks not merged", "server/pipeline/process.ts", "return open.find((t) => titleSimilarity(t.title, title) >= DUPLICATE_TASK_SIMILARITY);", "return undefined;", "test/pipeline.test.ts"),
+  ("draft finish not idempotent", "server/http/routes-captures.ts", "if (again) return c.json(", "if (false) return c.json(", "test/draft.test.ts"),
+  ("stale drafts never filed", "server/http/routes-captures.ts", "for (const c of stale) queueCapture(ctx, c.id);", "", "test/draft.test.ts"),
+  ("schema back to unions", "server/pipeline/schema.ts", 'const nstr = { type: "string" };', 'const nstr = { anyOf: [{ type: "string" }, { type: "null" }] };', "test/extract.test.ts"),
   ("handle match skipped", "server/pipeline/resolve.ts", "if (rows.length > 0) return", "if (false) return", "test/pipeline.test.ts"),
   ("stage may regress", "server/pipeline/process.ts", "stageRank(person.stage) > stageRank(String(c.stage))", "person.stage !== c.stage", "test/pipeline.test.ts"),
   ("past due not clamped", "server/pipeline/dates.ts", "if (stated < today) return { due_on: today, source: \"stated\" };", "", "test/dates.test.ts"),

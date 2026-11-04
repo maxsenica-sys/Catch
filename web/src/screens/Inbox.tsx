@@ -10,8 +10,17 @@ import { Dot, catOf, dueLabel, timeAgo, toast, usePoll } from "../util";
 import { OutboxPill } from "./OutboxPill";
 
 const STATUS: Record<string, string> = {
-  queued: "Queued", processing: "Reading…", done: "Filed", review: "Needs a look", failed: "Failed",
+  draft: "Waiting for voice", queued: "Queued", processing: "Reading…", done: "Filed", review: "Needs a look", failed: "Failed",
 };
+
+/** A sentence a person can act on, not an API error. The raw text stays one tap away. */
+function friendlyError(error: string): string {
+  if (/API key|authentication|401|403/i.test(error)) return "Catch's AI key was rejected. Nothing you need to do — tell Claude \"Catch key error\".";
+  if (/HEIC/i.test(error)) return "That photo format isn't supported. Screenshots always work.";
+  if (/declined/i.test(error)) return "The AI declined to read this one. Try adding a short voice note or text and retry.";
+  if (/rate|overloaded|529|timeout|network|ECONN|fetch failed/i.test(error)) return "The AI was busy. It will retry by itself — or tap Retry.";
+  return "This one couldn't be read. Tap Retry; if it fails again, tell Claude.";
+}
 
 export function InboxScreen({ state }: { state: AppState }) {
   const [captures, setCaptures] = useState<CaptureView[] | null>(null);
@@ -19,7 +28,7 @@ export function InboxScreen({ state }: { state: AppState }) {
 
   const load = () => api<{ captures: CaptureView[] }>("/api/captures?limit=50").then((r) => setCaptures(r.captures)).catch(() => {});
   useEffect(() => void load(), [state.outbox.length]);
-  const busy = !!captures?.some((c) => c.status === "queued" || c.status === "processing") || state.outbox.length > 0;
+  const busy = !!captures?.some((c) => c.status === "queued" || c.status === "processing" || c.status === "draft") || state.outbox.length > 0;
   usePoll(() => {
     void load();
     void state.refresh();
@@ -58,9 +67,15 @@ export function InboxScreen({ state }: { state: AppState }) {
               <span class="muted grow-right">{timeAgo(c.captured_at)}</span>
             </div>
             <div class="summary" onClick={() => setOpen(expanded ? null : c.id)}>
-              {c.summary ?? (c.status === "failed" ? "Could not be read" : "Reading the screenshots and voice note…")}
+              {c.summary ?? (c.status === "failed" ? "Could not be read" : c.status === "draft" ? "Screenshots received — waiting for the voice note" : "Reading the screenshots and voice note…")}
             </div>
-            {c.error && c.status !== "done" && <div class={c.status === "failed" ? "error-text" : "muted small-text"}>{c.error}</div>}
+            {c.status === "failed" && c.error && (
+              <div class="row-actions">
+                <span class="error-text grow">{friendlyError(c.error)}</span>
+                <button class="small primary" onClick={() => api(`/api/captures/${c.id}/retry`, { method: "POST" }).then(load).catch((e) => toast(e.message, "error"))}>Retry</button>
+              </div>
+            )}
+            {c.error && c.status === "queued" && <div class="muted small-text">Retrying by itself…</div>}
             {c.people.length > 0 && (
               <div class="people-chips">
                 {c.people.map((p) => <a key={p.id} class="person-chip" href={`#/people/${p.id}`}>{p.name}</a>)}
@@ -91,10 +106,8 @@ export function InboxScreen({ state }: { state: AppState }) {
                 )}
                 {c.transcript && <p class="quote">“{c.transcript}”</p>}
                 {c.note && <p class="quote">{c.note}</p>}
+                {c.error && c.status === "failed" && <p class="muted small-text">Details: {c.error}</p>}
                 <div class="row-actions">
-                  {c.status === "failed" && (
-                    <button class="small primary" onClick={() => api(`/api/captures/${c.id}/retry`, { method: "POST" }).then(load).catch((e) => toast(e.message, "error"))}>Retry</button>
-                  )}
                   <button class="small danger" onClick={() => confirm("Delete this capture and its screenshots? People and tasks it created are kept.") &&
                     api(`/api/captures/${c.id}`, { method: "DELETE" }).then(load)}>Delete capture</button>
                 </div>

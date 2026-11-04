@@ -1,51 +1,53 @@
-# iPhone: screenshot → Catch in one tap
+# iPhone: Photos → Share → Catch
 
-iOS does not let web apps appear in the share sheet. The app itself is the
-fastest route for most captures (open Catch → Screenshots → hold mic). For the
-moments you want to send a screenshot *without opening anything*, an iOS
-Shortcut can post it straight to the API.
+The fastest capture route. You start where the screenshots already are:
 
-## Make a token
+**Photos → select screenshots → Share → Catch → talk → tap stop.** Done.
 
-Catch → Settings → API tokens → **New** → name it "iPhone Shortcut" → copy it.
+No app to open and no "Photo Library / Take Photo / Choose File" menu. iOS
+shows that menu for every web photo picker and no web app can skip it, which
+is why this route exists. The same steps are in Catch → **Settings → Share
+from Photos**, with copy buttons for the key and the two URLs.
 
-## Build the Shortcut (about five minutes)
+## How it works
 
-Shortcuts app → **+** → name it **Catch it**.
+The Shortcut sends each screenshot to `POST /api/captures/draft`, which adds
+it to your open draft (creating one if needed). Then it records your voice and
+sends it to `POST /api/captures/draft/finish`, which files the whole capture.
 
-1. **Receive** *Images* and *Screenshots* from **Share Sheet**.
-   (Shortcut settings → "Show in Share Sheet" on.)
-2. **Choose from Menu**, prompt "Category", items:
-   `Auto`, `Coaching`, `Lead`, `Instagram`, `Follow-up`. In each branch,
-   **Text** with the lowercase key: `auto`, `coaching`, `lead`, `instagram`,
-   `followup`. Set the menu result to a variable **Category**.
-3. **Dictate Text**, *Stop Listening: After Pause*. Set variable **Note**.
-   (iOS transcribes on the phone, so this goes in the `note` field and
-   works even without an OpenAI key.)
-4. **Convert Image** (Shortcut Input) to **JPEG**: HEIC is refused by the
-   server.
+- If you skip or abandon the recording, the screenshots are filed on their own
+  after 10 minutes. Nothing is lost.
+- If the finish is retried (weak signal), you get the same capture back, not a
+  second one.
+- A draft stays open for 10 minutes after its last screenshot, so screenshots
+  from two separate shares within that time join one capture.
+
+## Set it up (about 5 minutes, once)
+
+1. **Key.** Catch → Settings → Share from Photos → **Create key** → Copy key.
+   It looks like `Bearer catch_…` and is shown once.
+2. **Shortcuts app** → **+** → name it **Catch**. Tap **ⓘ** → **Show in Share
+   Sheet** on; receive **Images**.
+3. **Repeat with Each** → *Shortcut Input*. Inside the repeat:
+   - **Convert Image** → *Repeat Item* → **JPEG** (iPhone camera photos are
+     HEIC, which is refused; screenshots are fine either way).
+   - **Get Contents of URL**
+     - URL: `https://catch-maxsenica-sys.fly.dev/api/captures/draft`
+     - Method: **POST**
+     - Headers: `Authorization` = the key from step 1
+     - Request Body: **Form** → add a **File** field `image` = *Converted Image*
+4. After **End Repeat**: **Record Audio** → Start Recording **Immediately**,
+   Finish Recording **On Tap**.
 5. **Get Contents of URL**
-   - URL: `https://<your catch address>/api/captures`
-   - Method: **POST**
-   - Headers: `Authorization` = `Bearer <your token>`
-   - Request Body: **Form**
-     - `image` (File) = Converted Image
-     - `category` (Text) = Category
-     - `note` (Text) = Note
-     - `client_id` (Text) = *Current Date* formatted as ISO 8601 + a random
-       number (any unique string works)
-6. **Show Notification**: "Caught".
-
-Use it: take a screenshot → tap the thumbnail → Share → **Catch it** → pick a
-category → talk → done.
-
-**Back Tap** (Settings → Accessibility → Touch → Back Tap → Double Tap →
-your Shortcut) can run it from anywhere, but Back Tap passes no input. Pair it
-with a version of the Shortcut whose first action is **Get Latest
-Screenshots** (count 1).
+   - URL: `https://catch-maxsenica-sys.fly.dev/api/captures/draft/finish`
+   - Method **POST**, same `Authorization` header
+   - Request Body: **Form** → **File** field `audio` = *Recorded Audio*
+   - Optional: a **Text** field `category` (`coaching`, `lead`, `instagram`,
+     `program`, `followup`, `partnership`). Leave it out and Catch decides.
+6. **Show Notification** → "Caught".
 
 ## When it fails
 
-The Shortcut shows the server's error text. `401` means the token was revoked
-or mistyped; `415` means a non-JPEG image got through (check step 4).
-Anything that reached the server is in Catch → Inbox.
+The Shortcut shows the server's message. `401`: the key was revoked or
+mistyped, so make another in Settings. `415`: a photo that was not converted to
+JPEG (check step 3). Anything that reached the server is in Catch → Inbox.

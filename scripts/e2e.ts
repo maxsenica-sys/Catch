@@ -3,7 +3,7 @@
  * microphone. Offline providers, so no keys and no network.
  *
  * Walks the path that matters: sign up -> attach a screenshot -> tap a chip ->
- * hold the mic -> release (auto-send) -> the capture is filed -> the person
+ * tap the mic -> talk -> tap again (sends) -> the capture is filed -> the person
  * and the task exist. Then the outbox: capture while offline, come back
  * online, and it uploads exactly once.
  *
@@ -86,17 +86,15 @@ try {
   check("screenshot attached", (await page.locator(".shot img").count()) === 1);
   await shot("2-capture-filled");
 
-  // Hold the mic for 1.5s, release: auto-send.
+  // Tap to start, talk 1.5s, tap again: sent.
   const mic = page.locator("[data-testid=mic]");
-  const box = (await mic.boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
+  await mic.click();
   await page.locator(".rec-status").waitFor({ timeout: 5000 });
   await shot("3-recording");
   await page.waitForTimeout(1500);
-  await page.mouse.up();
+  await mic.click();
   await page.locator(".toast", { hasText: "Caught" }).waitFor({ timeout: 5000 });
-  check("release sends and confirms instantly", true);
+  check("second tap sends and confirms instantly", true);
   check("form clears for the next capture", (await page.locator(".shot img").count()) === 0);
 
   await page.goto(`${base}/#/inbox`);

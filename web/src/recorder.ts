@@ -11,7 +11,8 @@
  */
 
 const CANDIDATES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
-const IDLE_RELEASE_MS = 30_000;
+// Long enough that a run of captures back to back never re-asks for the mic.
+const IDLE_RELEASE_MS = 120_000;
 
 let stream: MediaStream | null = null;
 let releaseTimer: number | undefined;

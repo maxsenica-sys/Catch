@@ -1,14 +1,15 @@
 /**
  * The screen that matters. Designed for one-handed use in under ten seconds:
  *
- *   tap Screenshots -> pick -> (optionally tap a chip) -> hold mic, talk, let go.
+ *   tap Screenshots -> pick -> (optionally tap a chip) -> tap mic, talk, tap again.
  *
- * Letting go sends it. There is no confirm step and nothing to wait for: the
- * capture goes into the phone's outbox, the form clears, and the next capture
- * can start immediately. Everything slow happens on the server afterwards.
+ * The second tap sends it. There is no confirm step and nothing to wait for:
+ * the capture goes into the phone's outbox, the form clears, and the next
+ * capture can start immediately. Everything slow happens on the server.
  *
- * The mic button does both styles: hold to talk (release sends), or a quick
- * tap to start hands-free and another tap to stop.
+ * Tap to start, tap to stop — Max asked for that over hold-to-talk, which
+ * needs a thumb pinned to the glass for the whole note. (The fastest route of
+ * all skips this screen: Photos → Share → Catch, see docs/IOS-SHORTCUT.md.)
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { AppState } from "../main";
@@ -17,7 +18,6 @@ import { recordingSupported, startRecording, type Recording } from "../recorder"
 import { toast, vibrate, Dot } from "../util";
 import { OutboxPill } from "./OutboxPill";
 
-const TAP_MS = 350;
 const MAX_SECONDS = 180;
 
 interface Picked {
@@ -32,15 +32,11 @@ export function CaptureScreen({ state, initialCategory, shared }: { state: AppSt
   const [images, setImages] = useState<Picked[]>([]);
   const [note, setNote] = useState("");
   const [showNote, setShowNote] = useState(false);
-  const [recState, setRecState] = useState<"idle" | "holding" | "handsfree" | "starting">("idle");
+  const [recState, setRecState] = useState<"idle" | "starting" | "recording">("idle");
   const [seconds, setSeconds] = useState(0);
   const [level, setLevel] = useState(0);
   const [heldAudio, setHeldAudio] = useState<Blob | null>(null);
   const rec = useRef<Recording | null>(null);
-  const pressedAt = useRef(0);
-  // What the finger has said so far, independent of when the mic actually starts
-  // (the first start waits on a permission prompt).
-  const mode = useRef<"holding" | "handsfree">("holding");
   const fileInput = useRef<HTMLInputElement>(null);
   const tick = useRef<number | undefined>(undefined);
 
@@ -114,7 +110,7 @@ export function CaptureScreen({ state, initialCategory, shared }: { state: AppSt
       return;
     }
     vibrate(15);
-    setRecState(mode.current);
+    setRecState("recording");
     setSeconds(0);
     const started = Date.now();
     tick.current = window.setInterval(() => {
@@ -150,31 +146,14 @@ export function CaptureScreen({ state, initialCategory, shared }: { state: AppSt
     toast("Recording discarded");
   }
 
-  const onDown = (e: PointerEvent) => {
-    e.preventDefault();
-    if (recState !== "idle") return; // a press during hands-free is ended by its up-event
-    pressedAt.current = Date.now();
-    mode.current = "holding";
-    void begin();
-  };
-  const onUp = (e: PointerEvent) => {
-    e.preventDefault();
-    if (recState === "handsfree") {
-      void finish();
-      return;
-    }
-    const quick = Date.now() - pressedAt.current < TAP_MS;
-    if (!rec.current || quick) {
-      // A tap — or released while the mic was still starting (first-time
-      // permission prompt): keep recording hands-free until the next tap.
-      mode.current = "handsfree";
-      if (rec.current) setRecState("handsfree");
-      return;
-    }
-    void finish();
+  // One tap starts, the next sends. Taps while the mic is still starting (the
+  // first time, iOS is showing its permission prompt) are ignored.
+  const onMic = () => {
+    if (recState === "idle") void begin();
+    else if (recState === "recording") void finish();
   };
 
-  const recording = recState === "holding" || recState === "handsfree";
+  const recording = recState === "recording";
   const mm = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
   const hasContent = images.length > 0 || note.trim().length > 0 || heldAudio;
 
@@ -226,25 +205,27 @@ export function CaptureScreen({ state, initialCategory, shared }: { state: AppSt
       <div class="mic-area">
         {recording ? (
           <div class="rec-status">
-            <span class="rec-dot" /> {mm} · {recState === "handsfree" ? "tap to stop" : autoSend ? "release to send" : "release to attach"}
-            <button class="link-btn" onPointerDown={(e) => e.stopPropagation()} onClick={cancel}>Discard</button>
+            <span class="rec-dot" /> {mm} · {autoSend ? "tap again to send" : "tap again to stop"}
+            <button class="link-btn" onClick={cancel}>Discard</button>
           </div>
         ) : (
-          <div class="rec-hint">{heldAudio ? "Voice note attached" : autoSend ? "Hold to talk · let go to send" : "Hold to talk"}</div>
+          <div class="rec-hint">{heldAudio ? "Voice note attached" : recState === "starting" ? "Starting the mic…" : "Tap to talk"}</div>
         )}
         <button
           class={`mic ${recording ? "live" : ""}`}
           style={{ "--level": String(level) } as any}
-          aria-label={recording ? "Stop recording" : "Record voice note"}
+          aria-label={recording ? (autoSend ? "Stop and send" : "Stop recording") : "Record voice note"}
           data-testid="mic"
-          onPointerDown={onDown as any}
-          onPointerUp={onUp as any}
-          onPointerCancel={() => recState === "holding" && void finish()}
+          onClick={onMic}
           onContextMenu={(e) => e.preventDefault()}
         >
-          <svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true">
-            <path fill="currentColor" d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z" />
-          </svg>
+          {recording ? (
+            <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" /></svg>
+          ) : (
+            <svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true">
+              <path fill="currentColor" d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z" />
+            </svg>
+          )}
         </button>
         {hasContent && !recording && (
           <button class="send" data-testid="send" onClick={() => void send(heldAudio)}>
