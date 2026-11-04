@@ -173,6 +173,8 @@ test("an implausible date is dropped and reported, appointments are filed, low c
     assert.deepEqual(cap.reviews.map((r: any) => r.kind).sort(), ["date_dropped", "date_dropped", "low_confidence"]);
     assert.equal(cap.events.length, 1);
     assert.equal(cap.events[0].start_time, "09:00");
+    const notes = one<any>(app.ctx.db, "SELECT notes FROM events")!.notes;
+    assert.match(notes, /With Ruby Park/, "the calendar entry says who it is with");
     assert.equal(cap.tasks[0].due_source, "default");
   } finally {
     await app.close();
@@ -257,4 +259,30 @@ test("the same task captured twice is not created twice; a different task for th
   } finally {
     await app.close();
   }
+});
+
+test("Instagram is a channel, not a category: shipped default migrated, customised rows left alone", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const { MIGRATIONS } = await import("../server/db/migrations.ts");
+  const db = new DatabaseSync(":memory:");
+  db.exec(MIGRATIONS[0]);
+  const ins = db.prepare("INSERT INTO users (id, email, password_hash, feed_token, created_at) VALUES (?, ?, 'x', ?, 'now')");
+  ins.run("u1", "a@x", "f1");
+  ins.run("u2", "b@x", "f2");
+  const cat = db.prepare("INSERT INTO categories (id, user_id, key, name, guidance, todoist_label, created_at) VALUES (?, ?, 'instagram', 'Instagram', ?, 'Instagram', 'now')");
+  cat.run("c1", "u1", "DMs, comments and mentions on Instagram that need a reply, plus content ideas seen there.");
+  cat.run("c2", "u2", "My own words about Instagram");
+  db.exec(MIGRATIONS[1]);
+  const rows = db.prepare("SELECT user_id, name, todoist_label, tracks_people, guidance FROM categories ORDER BY user_id").all() as any[];
+  assert.equal(rows[0].name, "Instagram content");
+  assert.equal(rows[0].todoist_label, "Content");
+  assert.equal(rows[0].tracks_people, 0);
+  assert.match(rows[0].guidance, /NOT people who message/);
+  assert.equal(rows[1].name, "Instagram", "a category the user rewrote is theirs");
+  assert.equal(rows[1].guidance, "My own words about Instagram");
+
+  const { SYSTEM_PROMPT } = await import("../server/pipeline/extract.ts");
+  assert.match(SYSTEM_PROMPT, /Category is WHAT it is about; channel is WHERE to reply/);
+  const { DEFAULT_CATEGORIES } = await import("../server/categories.ts");
+  assert.equal(DEFAULT_CATEGORIES.find((c) => c.key === "instagram")!.guidance, rows[0].guidance, "new accounts and migrated accounts agree");
 });

@@ -248,11 +248,16 @@ export function applyExtraction(db: DB, user: UserRow, cap: CaptureRow, ex: Extr
       continue;
     }
     const eventId = id("ev");
+    const eventContact = appt.person_ref ? refToContact.get(appt.person_ref) ?? null : null;
+    // What the calendar entry says when it is opened: who, how to reach them, why.
+    const who = eventContact ? one<{ name: string }>(db, "SELECT name FROM contacts WHERE id = ?", eventContact)?.name : null;
+    const reach = eventContact ? actionLink(null, handlesOf(db, eventContact), null) : null;
     insert(db, "events", {
       id: eventId,
       user_id: user.id,
       capture_id: cap.id,
-      contact_id: appt.person_ref ? refToContact.get(appt.person_ref) ?? null : null,
+      contact_id: eventContact,
+      notes: [who ? `With ${who}` : "", reach ?? "", ex.summary].filter(Boolean).join("\n"),
       title: appt.title.trim(),
       date: appt.date,
       start_time: isTime(appt.start_time) ? appt.start_time : null,

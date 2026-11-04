@@ -62,13 +62,15 @@ test("Todoist: tasks arrive in the Catch project with label, priority, due date,
     assert.equal(sent.length, 2);
     const dm = sent.find((t) => t.content === "DM Jess")!;
     assert.equal(dm.project_id, "p-1");
-    assert.deepEqual(dm.labels, ["Coaching"]);
+    assert.deepEqual(dm.labels, ["Coaching", "Instagram"], "what it is about + where the reply goes");
+    assert.match(dm.description, /Reply via:\*\* Instagram/);
     assert.equal(dm.priority, 3);
     assert.equal(dm.due_date, "2026-12-07");
     assert.match(dm.description, /Hey Jess!/);
     assert.match(dm.description, /instagram\.com\/jess\.sets/);
     const call = sent.find((t) => t.content === "Call Jess")!;
     assert.equal(call.due_datetime, "2026-12-08T14:00:00Z", "17:00 Istanbul is 14:00 UTC");
+    assert.deepEqual(call.labels, ["Coaching"], "no channel, no channel label");
     assert.equal(td.calls[0].headers.authorization, "Bearer tok-123");
 
     // Exactly once: re-running deliveries sends nothing new.

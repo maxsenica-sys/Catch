@@ -232,4 +232,13 @@ CREATE TABLE deliveries (
   UNIQUE (integration, object_type, object_id)
 );
 `,
+  /* 2: Instagram is a channel, not a topic. Only rows still on the shipped default are changed. */ `
+UPDATE categories
+   SET name = 'Instagram content',
+       guidance = 'Work on the Instagram account itself: posts, reels, captions, content ideas, growth. NOT people who message or comment on Instagram: file them under what they want (Coaching, Lead, Partnership); the reply task records that it goes back via Instagram.',
+       todoist_label = CASE WHEN todoist_label = 'Instagram' THEN 'Content' ELSE todoist_label END,
+       tracks_people = 0,
+       followup_days = 3
+ WHERE key = 'instagram' AND guidance = 'DMs, comments and mentions on Instagram that need a reply, plus content ideas seen there.';
+`,
 ];

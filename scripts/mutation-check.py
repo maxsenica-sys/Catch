@@ -6,6 +6,8 @@ Each case restores the file afterwards, even on failure.
 """
 import subprocess, sys
 cases = [
+  ("channel label dropped", "server/integrations/todoist.ts", "labels: [task.categoryLabel, task.channel ? CHANNEL_LABELS[task.channel] : null]", "labels: [task.categoryLabel, null]", "test/integrations.test.ts"),
+  ("migration overwrites customised category", "server/db/migrations.ts", " WHERE key = 'instagram' AND guidance = ", " WHERE key = 'instagram' OR guidance = ", "test/pipeline.test.ts"),
   ("duplicate cleanup does nothing", "server/pipeline/duplicates.ts", "    if (group) group.remove.push(t);", "    if (false) group.remove.push(t);", "test/duplicates.test.ts"),
   ("cleanup removes people's tasks across people", "server/pipeline/duplicates.ts", 'const key = t.contact_id ?? "";', 'const key = "";', "test/duplicates.test.ts"),
   ("auto cleanup ignores the setting", "server/app.ts", "if (user && autoDedupeEnabled(user))", "if (user)", "test/duplicates.test.ts"),

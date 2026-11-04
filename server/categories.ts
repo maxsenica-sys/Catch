@@ -25,8 +25,12 @@ export const DEFAULT_CATEGORIES: Omit<CategoryRow, "id" | "user_id" | "archived"
     guidance: "Athletes, parents and clients for private, small-group or remote coaching: enquiries, bookings, session times, progress." },
   { key: "lead", name: "Lead", color: "#16a34a", followup_days: 2, todoist_label: "Lead", tracks_people: 1, sort: 1,
     guidance: "Prospective clients or customers who have shown interest but not committed: enquiries, comments asking about prices or availability." },
-  { key: "instagram", name: "Instagram", color: "#db2777", followup_days: 1, todoist_label: "Instagram", tracks_people: 1, sort: 2,
-    guidance: "DMs, comments and mentions on Instagram that need a reply, plus content ideas seen there." },
+  // A platform is where someone talks to you, not what they want. Until
+  // 04/11/2026 this was "Instagram" and a coaching enquiry by DM was filed as
+  // Instagram, not Coaching. The platform now lives on the task as its channel
+  // (and a Todoist label); this category is only the account's own content.
+  { key: "instagram", name: "Instagram content", color: "#db2777", followup_days: 3, todoist_label: "Content", tracks_people: 0, sort: 2,
+    guidance: "Work on the Instagram account itself: posts, reels, captions, content ideas, growth. NOT people who message or comment on Instagram: file them under what they want (Coaching, Lead, Partnership); the reply task records that it goes back via Instagram." },
   { key: "program", name: "Program", color: "#9333ea", followup_days: 3, todoist_label: "Program", tracks_people: 0, sort: 3,
     guidance: "Program and content building: drills, sessions, training plans, product ideas, things to write or film." },
   { key: "followup", name: "Follow-up", color: "#ea580c", followup_days: 1, todoist_label: "Follow-up", tracks_people: 1, sort: 4,

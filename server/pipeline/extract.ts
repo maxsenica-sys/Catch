@@ -63,8 +63,11 @@ Actions
 Appointments
 - Only fixed commitments with a known date: a session booked, a call scheduled, a trial on Saturday at 9. Not deadlines — those are actions.
 
-Category
-- If a chip was tapped, file the capture under it unless the content plainly cannot belong there. If "auto", choose the best fit from the user's categories. A person may carry a different category from the capture when that is clearly right.
+Category is WHAT it is about; channel is WHERE to reply. Keep them apart.
+- File by topic. A coaching enquiry that arrives as an Instagram DM is Coaching, not Instagram; a brand asking about a collab by email is Partnership. The platform goes on the reply action as its channel.
+- A chip that names a platform (Instagram, TikTok, email) tells you where the conversation is. Use it for channels, and still file by what the person wants. Platform categories are only for work on that account itself (posts, content).
+- When a conversation on one platform leads to something set up elsewhere, make one action per step, each on its own channel and category: "Reply to Jess on Instagram with session times" (channel instagram, Coaching) plus an appointment for the booked session itself.
+- Otherwise, if a chip was tapped, file the capture under it unless the content plainly cannot belong there. If "auto", choose the best fit from the user's categories. A person may carry a different category from the capture when that is clearly right.
 
 Use an empty string for any field that is unknown or does not apply. If there is nothing actionable, still return a useful summary with empty lists. Set confidence low when the screenshot is unreadable or it is unclear who is who.`;
 

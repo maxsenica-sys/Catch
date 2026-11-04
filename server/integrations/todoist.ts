@@ -17,6 +17,11 @@ import { all, one } from "../db/db.ts";
 import { completeTask } from "../pipeline/followups.ts";
 import { enqueue } from "../jobs/queue.ts";
 
+export const CHANNEL_LABELS: Record<string, string> = {
+  instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook", email: "Email",
+  whatsapp: "WhatsApp", sms: "Text", call: "Call", in_person: "In person",
+};
+
 async function api<T>(call: IntegrationCall, method: string, path: string, body?: unknown): Promise<{ status: number; data: T | null }> {
   const res = await call.ctx.fetch(`${call.ctx.config.todoistApiBase}${path}`, {
     method,
@@ -79,6 +84,7 @@ async function projectId(call: IntegrationCall): Promise<string> {
 
 export function describeTask(task: TaskPayload): string {
   const lines: string[] = [];
+  if (task.channel && CHANNEL_LABELS[task.channel]) lines.push(`**Reply via:** ${CHANNEL_LABELS[task.channel]}`);
   if (task.draft_message) lines.push(`**Draft:** ${task.draft_message}`);
   if (task.link) lines.push(`**Open:** ${task.link}`);
   if (task.contact) lines.push(`**Who:** ${task.contact.name} (${task.contact.stage})`);
@@ -107,7 +113,11 @@ export const todoist: Integration = {
       description: describeTask(task),
       project_id: await projectId(call),
       priority: task.priority,
-      labels: task.categoryLabel ? [task.categoryLabel] : [],
+      // Two labels, two questions: what it is about (category) and where the
+      // reply goes (channel). "@Instagram" in Todoist then lists every DM owed,
+      // whatever it is about.
+      labels: [task.categoryLabel, task.channel ? CHANNEL_LABELS[task.channel] : null]
+        .filter((l, i, all): l is string => !!l && all.indexOf(l) === i),
     };
     if (task.due_on && task.due_time) {
       body.due_datetime = localToUtc(task.due_on, task.due_time, call.user.timezone).toISOString().replace(/\.\d{3}Z$/, "Z");
