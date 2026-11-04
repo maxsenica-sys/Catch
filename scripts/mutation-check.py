@@ -6,6 +6,9 @@ Each case restores the file afterwards, even on failure.
 """
 import subprocess, sys
 cases = [
+  ("duplicate cleanup does nothing", "server/pipeline/duplicates.ts", "    if (group) group.remove.push(t);", "    if (false) group.remove.push(t);", "test/duplicates.test.ts"),
+  ("cleanup removes people's tasks across people", "server/pipeline/duplicates.ts", 'const key = t.contact_id ?? "";', 'const key = "";', "test/duplicates.test.ts"),
+  ("auto cleanup ignores the setting", "server/app.ts", "if (user && autoDedupeEnabled(user))", "if (user)", "test/duplicates.test.ts"),
   ("duplicate tasks not merged", "server/pipeline/process.ts", "return open.find((t) => titleSimilarity(t.title, title) >= DUPLICATE_TASK_SIMILARITY);", "return undefined;", "test/pipeline.test.ts"),
   ("draft finish not idempotent", "server/http/routes-captures.ts", "if (again) return c.json(", "if (false) return c.json(", "test/draft.test.ts"),
   ("stale drafts never filed", "server/http/routes-captures.ts", "for (const c of stale) queueCapture(ctx, c.id);", "", "test/draft.test.ts"),

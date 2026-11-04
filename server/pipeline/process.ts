@@ -184,10 +184,11 @@ export function applyExtraction(db: DB, user: UserRow, cap: CaptureRow, ex: Extr
     const due = decideDue(action.due_date, today, cat?.followup_days ?? 3);
     // The same DM screenshotted twice, or a follow-up capture about the same
     // thing, must not stack up copies of one task. A near-identical open task
-    // for the same person absorbs it; a stated earlier date moves it forward.
+    // for the same person absorbs it; a said date beats a default one, and an
+    // earlier said date moves it forward.
     const twin = findSimilarOpenTask(db, user.id, contactId, action.title);
     if (twin) {
-      if (due.source === "stated" && (!twin.due_on || due.due_on < twin.due_on)) {
+      if (due.source === "stated" && (twin.due_source !== "stated" || !twin.due_on || due.due_on < twin.due_on)) {
         update(db, "tasks", twin.id, { due_on: due.due_on, due_source: "stated" });
       }
       if (contactId) contactsWithAction.add(contactId);
@@ -298,10 +299,10 @@ export function titleSimilarity(a: string, b: string): number {
 
 export const DUPLICATE_TASK_SIMILARITY = 0.6;
 
-function findSimilarOpenTask(db: DB, userId: string, contactId: string | null, title: string): { id: string; due_on: string | null } | undefined {
-  const open = all<{ id: string; title: string; due_on: string | null }>(
+function findSimilarOpenTask(db: DB, userId: string, contactId: string | null, title: string): { id: string; due_on: string | null; due_source: string } | undefined {
+  const open = all<{ id: string; title: string; due_on: string | null; due_source: string }>(
     db,
-    `SELECT id, title, due_on FROM tasks WHERE user_id = ? AND status = 'open' AND ${contactId ? "contact_id = ?" : "contact_id IS NULL"}`,
+    `SELECT id, title, due_on, due_source FROM tasks WHERE user_id = ? AND status = 'open' AND ${contactId ? "contact_id = ?" : "contact_id IS NULL"}`,
     ...(contactId ? [userId, contactId] : [userId]),
   );
   return open.find((t) => titleSimilarity(t.title, title) >= DUPLICATE_TASK_SIMILARITY);

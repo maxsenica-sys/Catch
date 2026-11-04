@@ -18,6 +18,7 @@ import { mockExtractor } from "./pipeline/mock-extractor.ts";
 import { processCapture } from "./pipeline/process.ts";
 import { purgeOldJobs, runSweepJob } from "./pipeline/followups.ts";
 import { deliver, pollIntegrations } from "./integrations/index.ts";
+import { autoDedupeEnabled, removeDuplicates } from "./pipeline/duplicates.ts";
 import { icalendar, type FeedEvent } from "./feeds.ts";
 import { requireUser, type Env } from "./http/auth.ts";
 import { authRoutes } from "./http/routes-auth.ts";
@@ -49,7 +50,11 @@ export function createCatch(
   const handlers: Record<string, Handler> = {
     process_capture: (job) => processCapture(ctx, String(job.payload.captureId)),
     deliver: (job) => deliver(ctx, job.payload as { userId: string; event: string; objectId: string; skip?: string[] }),
-    followups_sweep: async (job) => runSweepJob(ctx, String(job.payload.userId)),
+    followups_sweep: async (job) => {
+      runSweepJob(ctx, String(job.payload.userId));
+      const user = one<UserRow>(db, "SELECT * FROM users WHERE id = ?", String(job.payload.userId));
+      if (user && autoDedupeEnabled(user)) await removeDuplicates(ctx, user);
+    },
     poll_integrations: (job) => pollIntegrations(ctx, String(job.payload.userId)),
     housekeeping: async () => purgeOldJobs(db),
     drafts_sweep: async () => {

@@ -9,6 +9,7 @@ import { isValidTimeZone, todayIn } from "../pipeline/dates.ts";
 import { INTEGRATIONS, describeIntegrations, saveIntegration, testIntegration } from "../integrations/index.ts";
 import { enqueue } from "../jobs/queue.ts";
 import { randomToken } from "../crypto.ts";
+import { findDuplicates, removeDuplicates } from "../pipeline/duplicates.ts";
 
 const MePatch = z.object({
   name: z.string().trim().max(100).optional(),
@@ -19,6 +20,7 @@ const MePatch = z.object({
     maxFollowups: z.number().int().min(0).max(20).optional(),
     autoSend: z.boolean().optional(),
     holdToRecord: z.boolean().optional(),
+    autoDedupe: z.boolean().optional(),
   }).optional(),
 });
 
@@ -84,6 +86,12 @@ export function settingsRoutes(ctx: Ctx) {
         "SELECT kind, last_error FROM integrations WHERE user_id = ? AND enabled = 1 AND last_error IS NOT NULL", u.id),
     });
   });
+
+  // Duplicates -------------------------------------------------------------
+  /** What a cleanup would remove, so it can be looked at first. Removes nothing. */
+  app.get("/duplicates", (c) => c.json(findDuplicates(ctx.db, c.get("user").id)));
+
+  app.post("/duplicates/clean", async (c) => c.json(await removeDuplicates(ctx, c.get("user"))));
 
   // Categories -------------------------------------------------------------
   app.get("/categories", (c) => c.json({ categories: listCategories(ctx.db, c.get("user").id, c.req.query("all") === "1") }));

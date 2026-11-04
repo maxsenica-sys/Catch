@@ -26,6 +26,7 @@ export function SettingsScreen({ state }: { state: AppState }) {
         </div>
       )}
       <ShareShortcut />
+      <Duplicates state={state} />
       <Profile state={state} />
       <Categories state={state} />
       <Integrations />
@@ -283,6 +284,72 @@ function ShareShortcut() {
             </p>
           </div>
         )}
+      </div>
+    </section>
+  );
+}
+
+interface DupReport {
+  tasks: { keep: { id: string; title: string; contact_name: string | null }; remove: { id: string; title: string }[] }[];
+  captures: { keep: { id: string; summary: string | null }; remove: { id: string; summary: string | null; created_at: string }[] }[];
+}
+
+/**
+ * Check, show, then remove. Nothing goes without being listed first, unless
+ * the user has switched on automatic removal (checked every 15 minutes).
+ */
+function Duplicates({ state }: { state: AppState }) {
+  const [auto, setAuto] = useState(state.me.user.settings.autoDedupe === true);
+  const [report, setReport] = useState<DupReport | null>(null);
+  const [busy, setBusy] = useState(false);
+  const count = report ? report.tasks.reduce((n, g) => n + g.remove.length, 0) + report.captures.reduce((n, g) => n + g.remove.length, 0) : 0;
+
+  async function toggle(value: boolean) {
+    setAuto(value);
+    await api("/api/me", { method: "PATCH", json: { settings: { autoDedupe: value } } }).catch(() => setAuto(!value));
+    await state.refresh();
+    toast(value ? "Duplicates will be removed automatically" : "Automatic removal off");
+  }
+
+  async function clean() {
+    setBusy(true);
+    try {
+      const r = await api("/api/duplicates/clean", { method: "POST" });
+      toast(`Removed ${r.tasks} task${r.tasks === 1 ? "" : "s"} and ${r.captures} capture${r.captures === 1 ? "" : "s"}`);
+      setReport(await api("/api/duplicates"));
+      void state.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section>
+      <div class="card">
+        <div class="card-head"><strong>Duplicates</strong></div>
+        <p class="muted small-text">
+          Finds tasks for the same person that say nearly the same thing, and captures whose screenshots are identical.
+          The oldest is kept (with the earliest deadline and any draft); copies disappear from your lists and Todoist.
+          People are never removed here.
+        </p>
+        <label class="toggle"><input type="checkbox" checked={auto} onChange={(e) => void toggle((e.target as HTMLInputElement).checked)} /> Remove duplicates automatically</label>
+        <div class="row-actions">
+          <button class="small" disabled={busy} onClick={() => void api("/api/duplicates").then(setReport)}>Check now</button>
+          {count > 0 && <button class="small primary" disabled={busy} onClick={() => void clean()}>Remove {count} duplicate{count === 1 ? "" : "s"}</button>}
+        </div>
+        {report && count === 0 && <p class="muted small-text">No duplicates. All clean.</p>}
+        {report?.tasks.map((g) => (
+          <div class="dup-group" key={g.keep.id}>
+            <div class="small-text"><b>Keep:</b> {g.keep.title}{g.keep.contact_name ? ` — ${g.keep.contact_name}` : ""}</div>
+            {g.remove.map((t) => <div class="small-text muted" key={t.id}>Remove: {t.title}</div>)}
+          </div>
+        ))}
+        {report?.captures.map((g) => (
+          <div class="dup-group" key={g.keep.id}>
+            <div class="small-text"><b>Keep capture:</b> {g.keep.summary ?? "(no summary)"}</div>
+            {g.remove.map((c) => <div class="small-text muted" key={c.id}>Remove the same screenshot sent again: {c.summary ?? "(no summary)"}</div>)}
+          </div>
+        ))}
       </div>
     </section>
   );
