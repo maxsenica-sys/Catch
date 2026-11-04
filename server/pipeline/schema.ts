@@ -18,7 +18,12 @@ export const ROLES = ["athlete", "parent", "coach", "client", "prospect", "partn
 export const STAGES = ["new", "contacted", "replied", "booked", "client", "parked", "dead"] as const;
 export const CHANNELS = ["instagram", "tiktok", "facebook", "email", "whatsapp", "sms", "call", "in_person", "other"] as const;
 
-const nullableString = z.string().nullable();
+// The model is constrained to plain strings, with "" meaning "not known" (see
+// the JSON Schema below). The server still accepts null, so the offline
+// extractor and tests can say null, and normalises both to null.
+const nullableString = z.string().nullable().transform((v) => (v && v.trim() ? v : null));
+const nullableEnum = <T extends readonly [string, ...string[]]>(values: T) =>
+  z.union([z.enum(values), z.literal(""), z.null()]).transform((v) => (v ? v : null));
 
 export const Handle = z.object({
   platform: z.enum(PLATFORMS),
@@ -32,21 +37,21 @@ export const Person = z.object({
   first_name: nullableString,
   last_name: nullableString,
   handles: z.array(Handle),
-  role: z.enum(ROLES).nullable(),
+  role: nullableEnum(ROLES),
   sport: nullableString,
   position: nullableString,
   level: nullableString,
   location: nullableString,
   organisation: nullableString,
   category: nullableString,
-  stage: z.enum(STAGES).nullable(),
+  stage: nullableEnum(STAGES),
   facts: nullableString,
 });
 
 export const Action = z.object({
   title: z.string().min(1),
   person_ref: nullableString,
-  channel: z.enum(CHANNELS).nullable(),
+  channel: nullableEnum(CHANNELS),
   due_date: nullableString,
   due_time: nullableString,
   due_evidence: nullableString,
@@ -81,10 +86,14 @@ export type Action = z.infer<typeof Action>;
 export type Appointment = z.infer<typeof Appointment>;
 
 const str = { type: "string" };
-// Nullable fields use anyOf rather than `type: [..., "null"]` or a null inside
-// `enum`: anyOf is the form the structured-outputs subset documents for unions.
-const nstr = { anyOf: [{ type: "string" }, { type: "null" }] };
-const nenum = (values: readonly string[]) => ({ anyOf: [{ type: "string", enum: [...values] }, { type: "null" }] });
+// No unions at all. Structured outputs refuse a schema with more than 16
+// union-typed parameters (anyOf, or a type array) because they compile
+// exponentially, and this one had 24 — every live capture failed with a 400.
+// So "unknown" is an empty string, not null, and enums carry "" as a member.
+// The zod schema above turns "" back into null. test/extract.test.ts counts
+// unions so this cannot creep back.
+const nstr = { type: "string" };
+const nenum = (values: readonly string[]) => ({ type: "string", enum: [...values, ""] });
 const obj = (properties: Record<string, unknown>) => ({
   type: "object",
   properties,
@@ -118,7 +127,7 @@ export const EXTRACTION_JSON_SCHEMA = obj({
       location: nstr,
       organisation: { ...nstr, description: "Club, school or company." },
       category: { ...nstr, description: "Category key for this person if different from the capture's." },
-      stage: { ...nenum(STAGES), description: "Only when the capture shows it: e.g. they replied, booked, became a client. Otherwise null." },
+      stage: { ...nenum(STAGES), description: "Only when the capture shows it: e.g. they replied, booked, became a client. Otherwise an empty string." },
       facts: { ...nstr, description: "Anything else worth remembering about them, terse." },
     }),
   },
@@ -128,11 +137,11 @@ export const EXTRACTION_JSON_SCHEMA = obj({
       title: { ...str, description: "Imperative, specific, under 80 characters. 'DM Jess about a trial session', not 'Follow up'." },
       person_ref: nstr,
       channel: nenum(CHANNELS),
-      due_date: { ...nstr, description: "YYYY-MM-DD, only if the voice note, text or screenshot states or clearly implies a date. Otherwise null — never guess." },
+      due_date: { ...nstr, description: "YYYY-MM-DD, only if the voice note, text or screenshot states or clearly implies a date. Otherwise an empty string — never guess." },
       due_time: { ...nstr, description: "HH:MM 24h, only if stated." },
-      due_evidence: { ...nstr, description: "The words that gave the date, quoted. Null if due_date is null." },
+      due_evidence: { ...nstr, description: "The words that gave the date, quoted. Empty if due_date is empty." },
       priority: { type: "integer", description: "1 to 4: 4 urgent, 3 high, 2 normal, 1 low." },
-      draft_message: { ...nstr, description: "If the action is to message someone: a short, friendly, ready-to-send first draft in the user's voice. Otherwise null." },
+      draft_message: { ...nstr, description: "If the action is to message someone: a short, friendly, ready-to-send first draft in the user's voice. Otherwise an empty string." },
       category: nstr,
     }),
   },

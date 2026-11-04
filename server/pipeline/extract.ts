@@ -51,13 +51,13 @@ People
 - Exclude the user themselves, famous people mentioned in passing, and anyone who is only background.
 - Copy handles, emails and phone numbers exactly as shown. Never invent or complete contact details. A person with only a first name is fine.
 - Put useful facts (age group, goals, what they asked for, budget, availability) in facts, briefly.
-- Set stage only on evidence: replied when the screenshot shows them replying, booked when a session or call is agreed, client when they pay or train regularly. Otherwise null.
+- Set stage only on evidence: replied when the screenshot shows them replying, booked when a session or call is agreed, client when they pay or train regularly. Otherwise leave it empty.
 
 Actions
 - One action per concrete thing the user must do. Anyone awaiting a reply gets an action to reply on the right channel.
 - If the user said what to do, do exactly that. Do not add generic "follow up" actions on top of specific ones.
 - Titles are imperative and specific: "DM Jess re trial session times", not "Follow up".
-- due_date only when stated or clearly implied ("Monday", "tomorrow", "end of the week", "before the 12th"). Resolve relative dates against today's date given below; "next week" means the Monday of next week; a bare weekday means its next occurrence after today. Otherwise null — the app applies the user's default follow-up interval, so do not guess one.
+- due_date only when stated or clearly implied ("Monday", "tomorrow", "end of the week", "before the 12th"). Resolve relative dates against today's date given below; "next week" means the Monday of next week; a bare weekday means its next occurrence after today. Otherwise leave it empty — the app applies the user's default follow-up interval, so do not guess one.
 - draft_message: for message actions, write a ready-to-send draft in the user's voice: first person, warm, direct, 1-3 short sentences, matching the language and tone of the conversation. No sign-off, no placeholders like [Name] — use the real name or leave it out.
 
 Appointments
@@ -66,7 +66,7 @@ Appointments
 Category
 - If a chip was tapped, file the capture under it unless the content plainly cannot belong there. If "auto", choose the best fit from the user's categories. A person may carry a different category from the capture when that is clearly right.
 
-If there is nothing actionable, still return a useful summary with empty lists. Set confidence low when the screenshot is unreadable or it is unclear who is who.`;
+Use an empty string for any field that is unknown or does not apply. If there is nothing actionable, still return a useful summary with empty lists. Set confidence low when the screenshot is unreadable or it is unclear who is who.`;
 
 export function buildUserText(input: ExtractInput): string {
   const cats = input.categories

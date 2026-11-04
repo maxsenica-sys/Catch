@@ -111,6 +111,33 @@ test("the JSON schema stays inside the structured-outputs subset: every object c
   assert.deepEqual(Object.keys(EXTRACTION_JSON_SCHEMA.properties).sort(), Object.keys(Extraction.shape).sort());
 });
 
+test("the JSON schema has no unions: the API refuses more than 16, and this one once had 24", () => {
+  let unions = 0;
+  const walk = (node: any) => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node.anyOf) || Array.isArray(node.oneOf) || Array.isArray(node.type)) unions++;
+    for (const v of Object.values(node)) walk(v);
+  };
+  walk(EXTRACTION_JSON_SCHEMA);
+  assert.equal(unions, 0, `${unions} union-typed parameters`);
+});
+
+test("empty strings from the model mean unknown and become null", () => {
+  // Raw model output, so typed loosely: "" is a legal input, never an output.
+  const parsed = Extraction.parse(extraction({
+    people: [{ ref: "p1", name: "Jess", first_name: "", last_name: "", handles: [{ platform: "instagram", handle: "jess.sets", url: "" }],
+      role: "", sport: "", position: "", level: "", location: "", organisation: "", category: "", stage: "", facts: "" }],
+    actions: [{ title: "DM Jess", person_ref: "p1", channel: "", due_date: "", due_time: "", due_evidence: "", priority: 2, draft_message: "", category: "" }],
+    notes: "",
+  } as any));
+  assert.equal(parsed.people[0].stage, null);
+  assert.equal(parsed.people[0].role, null);
+  assert.equal(parsed.people[0].handles[0].url, null);
+  assert.equal(parsed.actions[0].channel, null);
+  assert.equal(parsed.actions[0].due_date, null);
+  assert.equal(parsed.notes, null);
+});
+
 test("the offline extractor meets the same contract and finds people, dates and channels in text", async () => {
   const out = await mockExtractor().extract({ ...input, transcript: "This is Jess Taylor in Brisbane, a setter. DM her Monday @jess.sets" });
   assert.ok(Extraction.safeParse(out).success);
