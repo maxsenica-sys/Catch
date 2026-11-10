@@ -125,9 +125,9 @@ test("the JSON schema has no unions: the API refuses more than 16, and this one 
 test("empty strings from the model mean unknown and become null", () => {
   // Raw model output, so typed loosely: "" is a legal input, never an output.
   const parsed = Extraction.parse(extraction({
-    people: [{ ref: "p1", name: "Jess", first_name: "", last_name: "", handles: [{ platform: "instagram", handle: "jess.sets", url: "" }],
+    people: [{ ref: "p1", known_ref: "", name: "Jess", first_name: "", last_name: "", handles: [{ platform: "instagram", handle: "jess.sets", url: "" }],
       role: "", sport: "", position: "", level: "", location: "", organisation: "", category: "", stage: "", facts: "" }],
-    actions: [{ title: "DM Jess", person_ref: "p1", channel: "", due_date: "", due_time: "", due_evidence: "", priority: 2, draft_message: "", category: "" }],
+    actions: [{ title: "DM Jess", existing_task: "", person_ref: "p1", channel: "", due_date: "", due_time: "", due_evidence: "", priority: 2, draft_message: "", category: "" }],
     notes: "",
   } as any));
   assert.equal(parsed.people[0].stage, null);

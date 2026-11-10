@@ -133,6 +133,22 @@ export const todoist: Integration = {
     return data.id;
   },
 
+  async taskUpdated(call, task, externalId) {
+    if (!externalId) return null;
+    const body: Record<string, unknown> = {
+      content: task.title,
+      description: describeTask(task),
+      priority: task.priority,
+    };
+    if (task.due_on && task.due_time) {
+      body.due_datetime = localToUtc(task.due_on, task.due_time, call.user.timezone).toISOString().replace(/\.\d{3}Z$/, "Z");
+    } else if (task.due_on) {
+      body.due_date = task.due_on;
+    }
+    await api(call, "POST", `/tasks/${externalId}`, body);
+    return null;
+  },
+
   async taskClosed(call, task, externalId) {
     if (!externalId) return;
     if (task.status === "dismissed") {

@@ -49,6 +49,10 @@ export const webhook: Integration = {
     await post(call, "task.created", task);
     return null;
   },
+  async taskUpdated(call, task) {
+    await post(call, "task.updated", task);
+    return null;
+  },
   async taskClosed(call, task) {
     await post(call, "task.closed", task);
   },

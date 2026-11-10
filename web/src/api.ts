@@ -51,7 +51,7 @@ export interface Category {
 }
 
 export interface Me {
-  user: { id: string; email: string; name: string; role: string; timezone: string; date_order: "DMY" | "MDY"; settings: { autoSend?: boolean; vocabulary?: string; maxFollowups?: number; autoDedupe?: boolean } };
+  user: { id: string; email: string; name: string; role: string; timezone: string; date_order: "DMY" | "MDY"; settings: { autoSend?: boolean; vocabulary?: string; maxFollowups?: number; autoDedupe?: boolean; tasksOnCalendar?: boolean } };
   today: string;
   feed_url: string;
   providers: { transcriber: string; extractor: string; offline: boolean };

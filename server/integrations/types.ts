@@ -46,9 +46,15 @@ export interface Integration {
   description: string;
   fields: Field[];
   test(call: IntegrationCall): Promise<string>;
-  /** Returns the external id to remember (e.g. the Todoist task id). */
-  taskCreated?(call: IntegrationCall, task: TaskPayload): Promise<string | null>;
+  /**
+   * Returns the external id to remember (e.g. the Todoist task id), null when
+   * there is none, or undefined for "not sent" — nothing is recorded, so a
+   * later backfill (after a setting is switched on) still sends it.
+   */
+  taskCreated?(call: IntegrationCall, task: TaskPayload): Promise<string | null | undefined>;
   taskClosed?(call: IntegrationCall, task: TaskPayload, externalId: string | null): Promise<void>;
+  /** The task's wording, date or draft changed. Returns a new external id if the old one was replaced. */
+  taskUpdated?(call: IntegrationCall, task: TaskPayload, externalId: string): Promise<string | null>;
   captureProcessed?(call: IntegrationCall, payload: Record<string, unknown>): Promise<void>;
   /** An appointment was filed. Returns the external id to remember. */
   eventCreated?(call: IntegrationCall, event: EventPayload): Promise<string | null>;

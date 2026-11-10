@@ -28,6 +28,15 @@ export interface ExtractInput {
   today: string; // YYYY-MM-DD
   dateOrder: "DMY" | "MDY";
   userName: string;
+  /** Recently active people with their open tasks, so a capture can update instead of duplicate. */
+  known?: KnownPerson[];
+}
+
+export interface KnownPerson {
+  ref: string;
+  name: string;
+  handles: string;
+  tasks: { ref: string; title: string; due_on: string | null }[];
 }
 
 export interface Extractor {
@@ -63,6 +72,10 @@ Actions
 Appointments
 - Only fixed commitments with a known date: a session booked, a call scheduled, a trial on Saturday at 9. Not deadlines — those are actions.
 
+People and tasks already on file
+- You are shown people the user already has, each with a k-id, and their open tasks, each with a t-id. When someone in the capture is one of them (same person, even if only a first name is used here), set known_ref. Do not guess between two people with the same first name: leave it empty.
+- When an action is the same piece of work as an open task on file — reworded, refined or re-asked — set existing_task to its t-id and write the title as the best current wording, including any new detail. The app updates that task instead of creating a second. Only genuinely new work gets an empty existing_task.
+
 Category is WHAT it is about; channel is WHERE to reply. Keep them apart.
 - File by topic. A coaching enquiry that arrives as an Instagram DM is Coaching, not Instagram; a brand asking about a collab by email is Partnership. The platform goes on the reply action as its channel.
 - A chip that names a platform (Instagram, TikTok, email) tells you where the conversation is. Use it for channels, and still file by what the person wants. Platform categories are only for work on that account itself (posts, content).
@@ -85,6 +98,13 @@ export function buildUserText(input: ExtractInput): string {
     "",
     `Chip tapped: ${input.categoryHint ?? "auto"}`,
     `Screenshots attached: ${input.images.length}`,
+    "",
+    "People already on file (most recent first):",
+    ...(input.known?.length
+      ? input.known.map((k) => `- ${k.ref}: ${k.name}${k.handles ? ` (${k.handles})` : ""}${k.tasks.length
+          ? ` — open tasks: ${k.tasks.map((t) => `${t.ref} "${t.title}"${t.due_on ? ` due ${t.due_on}` : ""}`).join("; ")}`
+          : " — no open tasks"}`)
+      : ["(none yet)"]),
     "",
     `Voice note transcript: ${input.transcript ? `"""${input.transcript}"""` : "(none)"}`,
     `Typed note: ${input.note ? `"""${input.note}"""` : "(none)"}`,

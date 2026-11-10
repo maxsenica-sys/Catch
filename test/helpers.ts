@@ -47,14 +47,14 @@ export function makeApp(opts: { config?: Partial<Config>; fetch?: typeof fetch; 
 
 export function person(p: Partial<Person> & { ref: string; name: string }): Person {
   return {
-    first_name: null, last_name: null, handles: [], role: null, sport: null, position: null, level: null,
+    known_ref: null, first_name: null, last_name: null, handles: [], role: null, sport: null, position: null, level: null,
     location: null, organisation: null, category: null, stage: null, facts: null, ...p,
   };
 }
 
 export function action(a: Partial<Action> & { title: string }): Action {
   return {
-    person_ref: null, channel: null, due_date: null, due_time: null, due_evidence: null, priority: 2,
+    existing_task: null, person_ref: null, channel: null, due_date: null, due_time: null, due_evidence: null, priority: 2,
     draft_message: null, category: null, ...a,
   };
 }

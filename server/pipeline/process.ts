@@ -14,7 +14,8 @@ import { categoryFor, listCategories, type CategoryRow } from "../categories.ts"
 import { enqueue } from "../jobs/queue.ts";
 import { decideDue, describeNow, isIsoDate, isTime, todayIn } from "./dates.ts";
 import type { Extraction, Person } from "./schema.ts";
-import { actionLink, handleUrl, normaliseHandle, resolvePerson } from "./resolve.ts";
+import type { KnownPerson } from "./extract.ts";
+import { actionLink, handleUrl, normaliseHandle, normaliseName, resolvePerson } from "./resolve.ts";
 
 export interface CaptureRow {
   id: string;
@@ -51,6 +52,8 @@ export interface ApplyResult {
   contactsCreated: string[];
   contactsUpdated: string[];
   tasks: string[];
+  /** Existing tasks this capture refined (new wording, date or draft); integrations are told. */
+  updatedTasks: string[];
   events: string[];
   reviews: string[];
 }
@@ -107,6 +110,7 @@ export async function processCapture(ctx: Ctx, captureId: string): Promise<void>
       files.filter((f) => f.kind === "image").map(async (f) => ({ mime: f.mime, data: await ctx.storage.read(f.path) })),
     );
     const cats = listCategories(db, user.id);
+    const known = knownPeople(db, user.id);
     const tz = user.timezone;
     const extraction = await ctx.extractor.extract({
       images,
@@ -118,11 +122,15 @@ export async function processCapture(ctx: Ctx, captureId: string): Promise<void>
       today: todayIn(tz),
       dateOrder: user.date_order,
       userName: user.name,
+      known: known.list,
     });
 
-    const result = tx(db, () => applyExtraction(db, user, cap, extraction, cats));
+    const result = tx(db, () => applyExtraction(db, user, cap, extraction, cats, known.maps));
     for (const taskId of result.tasks) {
       enqueue(db, "deliver", { userId: user.id, event: "task.created", objectId: taskId });
+    }
+    for (const taskId of result.updatedTasks) {
+      enqueue(db, "deliver", { userId: user.id, event: "task.updated", objectId: taskId });
     }
     for (const eventId of result.events) {
       enqueue(db, "deliver", { userId: user.id, event: "event.created", objectId: eventId });
@@ -138,10 +146,52 @@ export async function processCapture(ctx: Ctx, captureId: string): Promise<void>
   }
 }
 
-export function applyExtraction(db: DB, user: UserRow, cap: CaptureRow, ex: Extraction, cats: CategoryRow[]): ApplyResult {
+export interface KnownMaps {
+  contacts: Map<string, string>; // k-ref -> contact id
+  tasks: Map<string, string>; // t-ref -> task id
+}
+
+/**
+ * The people the model is shown as already on file: the 40 most recently
+ * active, each with up to 8 open tasks. Short refs (k1, t3) rather than ids,
+ * so the model cannot invent a plausible-looking id; refs it did not see map
+ * to nothing.
+ */
+export function knownPeople(db: DB, userId: string): { list: KnownPerson[]; maps: KnownMaps } {
+  const maps: KnownMaps = { contacts: new Map(), tasks: new Map() };
+  let t = 0;
+  const list = all<{ id: string; name: string }>(
+    db, "SELECT id, name FROM contacts WHERE user_id = ? AND archived = 0 ORDER BY updated_at DESC LIMIT 40", userId,
+  ).map((c, i) => {
+    const ref = `k${i + 1}`;
+    maps.contacts.set(ref, c.id);
+    const handles = all<{ platform: string; handle: string }>(db, "SELECT platform, handle FROM contact_handles WHERE contact_id = ? LIMIT 3", c.id)
+      .map((h) => `${h.platform}:${h.handle}`).join(", ");
+    const tasks = all<{ id: string; title: string; due_on: string | null }>(
+      db, "SELECT id, title, due_on FROM tasks WHERE contact_id = ? AND status = 'open' ORDER BY due_on LIMIT 8", c.id,
+    ).map((task) => {
+      const tref = `t${++t}`;
+      maps.tasks.set(tref, task.id);
+      return { ref: tref, title: task.title, due_on: task.due_on };
+    });
+    return { ref, name: c.name, handles, tasks };
+  });
+  return { list, maps };
+}
+
+/** The model's "this is k3" only counts when the first names agree: a cheap check that it did not pick the wrong row. */
+function firstNameAgrees(db: DB, contactId: string, person: Person): boolean {
+  const c = one<{ name: string; first_name: string | null }>(db, "SELECT name, first_name FROM contacts WHERE id = ?", contactId);
+  if (!c) return false;
+  const theirs = normaliseName(c.first_name || c.name).split(" ")[0];
+  const mine = normaliseName(person.first_name || person.name).split(" ")[0];
+  return !!theirs && theirs === mine;
+}
+
+export function applyExtraction(db: DB, user: UserRow, cap: CaptureRow, ex: Extraction, cats: CategoryRow[], known: KnownMaps = { contacts: new Map(), tasks: new Map() }): ApplyResult {
   const now = nowIso();
   const today = todayIn(user.timezone);
-  const result: ApplyResult = { contactsCreated: [], contactsUpdated: [], tasks: [], events: [], reviews: [] };
+  const result: ApplyResult = { contactsCreated: [], contactsUpdated: [], tasks: [], updatedTasks: [], events: [], reviews: [] };
   const captureCat = categoryFor(cats, cats.some((c) => c.key === ex.category) ? ex.category : cap.category_hint);
   const validCat = (key: string | null | undefined) => (key && cats.some((c) => c.key === key) ? key : null);
 
@@ -154,7 +204,14 @@ export function applyExtraction(db: DB, user: UserRow, cap: CaptureRow, ex: Extr
   // People -----------------------------------------------------------------
   const refToContact = new Map<string, string>();
   for (const person of ex.people) {
-    const match = resolvePerson(db, user.id, person);
+    let match = resolvePerson(db, user.id, person);
+    // The deterministic matcher never merges on a first name alone. The model,
+    // which sees the screenshot and who is already on file, may say "this is
+    // k3"; that is taken only when the first names agree.
+    const hinted = person.known_ref ? known.contacts.get(person.known_ref) : undefined;
+    if (match.kind === "new" && hinted && firstNameAgrees(db, hinted, person)) {
+      match = { kind: "existing", contactId: hinted, via: "model" };
+    }
     let contactId: string;
     if (match.kind === "existing") {
       contactId = match.contactId;
@@ -207,10 +264,30 @@ export function applyExtraction(db: DB, user: UserRow, cap: CaptureRow, ex: Extr
     // thing, must not stack up copies of one task. A near-identical open task
     // for the same person absorbs it; a said date beats a default one, and an
     // earlier said date moves it forward.
-    const twin = findSimilarOpenTask(db, user.id, contactId, action.title);
+    // The model recognised this as an open task already on file (reworded or
+    // refined): update that task rather than add a second. Only within the same
+    // person, and only an open task the model was actually shown.
+    const hintedTaskId = action.existing_task ? known.tasks.get(action.existing_task) : undefined;
+    const target = hintedTaskId
+      ? one<{ id: string; contact_id: string | null; due_on: string | null; due_source: string }>(
+          db, "SELECT id, contact_id, due_on, due_source FROM tasks WHERE id = ? AND user_id = ? AND status = 'open'", hintedTaskId, user.id)
+      : undefined;
+    const twin = target && (!contactId || !target.contact_id || target.contact_id === contactId)
+      ? target
+      : findSimilarOpenTask(db, user.id, contactId, action.title);
     if (twin) {
+      const patch: Record<string, unknown> = {};
+      if (twin === target) {
+        patch.title = action.title.trim().slice(0, 200);
+        if (action.draft_message) patch.draft_message = action.draft_message;
+      }
       if (due.source === "stated" && (twin.due_source !== "stated" || !twin.due_on || due.due_on < twin.due_on)) {
-        update(db, "tasks", twin.id, { due_on: due.due_on, due_source: "stated" });
+        patch.due_on = due.due_on;
+        patch.due_source = "stated";
+      }
+      if (Object.keys(patch).length) {
+        update(db, "tasks", twin.id, patch);
+        if (!result.updatedTasks.includes(twin.id)) result.updatedTasks.push(twin.id);
       }
       if (contactId) contactsWithAction.add(contactId);
       continue;

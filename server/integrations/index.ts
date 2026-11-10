@@ -209,7 +209,7 @@ export async function deliver(ctx: Ctx, payload: { userId: string; event: string
         const task = taskPayload(ctx, payload.objectId);
         if (!task || task.status !== "open") continue;
         const externalId = await integ.taskCreated(c, task);
-        recordDelivery(db, user.id, row.kind, "task", payload.objectId, externalId, "sent");
+        if (externalId !== undefined) recordDelivery(db, user.id, row.kind, "task", payload.objectId, externalId, "sent");
       } else if (payload.event === "task.closed" && integ.taskClosed) {
         const prior = delivered(db, row.kind, "task", payload.objectId);
         if (prior?.status === "closed") continue;
@@ -217,6 +217,16 @@ export async function deliver(ctx: Ctx, payload: { userId: string; event: string
         if (!task) continue;
         await integ.taskClosed(c, task, prior?.external_id ?? null);
         recordDelivery(db, user.id, row.kind, "task", payload.objectId, null, "closed");
+      } else if (payload.event === "task.updated" && integ.taskUpdated) {
+        const prior = delivered(db, row.kind, "task", payload.objectId);
+        if (!prior || prior.status === "closed") continue; // never sent there: nothing to update
+        const task = taskPayload(ctx, payload.objectId);
+        if (!task || task.status !== "open") continue;
+        const replaced = await integ.taskUpdated(c, task, prior.external_id ?? "");
+        if (replaced && replaced !== prior.external_id) {
+          run(db, "UPDATE deliveries SET external_id = ?, updated_at = ? WHERE integration = ? AND object_type = 'task' AND object_id = ?",
+            replaced, nowIso(), row.kind, payload.objectId);
+        }
       } else if (payload.event === "event.created" && integ.eventCreated) {
         if (delivered(db, row.kind, "event", payload.objectId)) continue;
         const ev = one<EventPayload>(db, "SELECT id, title, date, start_time, end_time, location, notes FROM events WHERE id = ?", payload.objectId);

@@ -6,6 +6,12 @@ Each case restores the file afterwards, even on failure.
 """
 import subprocess, sys
 cases = [
+  ("model person match trusted without name check", "server/pipeline/process.ts", "if (match.kind === \"new\" && hinted && firstNameAgrees(db, hinted, person)) {", "if (match.kind === \"new\" && hinted) {", "test/pipeline.test.ts"),
+  ("model task match crosses people", "server/pipeline/process.ts", "const twin = target && (!contactId || !target.contact_id || target.contact_id === contactId)", "const twin = target", "test/pipeline.test.ts"),
+  ("model task match ignored", "server/pipeline/process.ts", "const hintedTaskId = action.existing_task ? known.tasks.get(action.existing_task) : undefined;", "const hintedTaskId = undefined as string | undefined;", "test/pipeline.test.ts"),
+  ("calendar to-dos ignore the switch", "server/integrations/gcal.ts", "if (!tasksOnCalendar(c.user)) return undefined;", "", "test/gcal.test.ts"),
+  ("ticked task stays on calendar", "server/integrations/gcal.ts", 'if (externalId) await call(c, { action: "delete", id: externalId });\n  },', "},", "test/gcal.test.ts"),
+  ("task edits not sent anywhere", "server/http/routes-people.ts", 'enqueue(ctx.db, "deliver", { userId: user.id, event: "task.updated", objectId: task.id });', "", "test/integrations.test.ts"),
   ("repeated screenshot read again", "server/pipeline/process.ts", "    if (repeat) {", "    if (false) {", "test/duplicates.test.ts"),
   ("repeat check ignores new voice", "server/pipeline/process.ts", "    if (!said) return true;", "    return true;", "test/duplicates.test.ts"),
   ("calendar create not idempotent in the script", "server/integrations/gcal.ts", "if (seen && cal.getEventById(seen))", "if (false)", "test/gcal.test.ts"),

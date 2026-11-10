@@ -73,7 +73,7 @@ export function mockExtractor(): Extractor {
       const text = [input.transcript ?? "", input.note].filter(Boolean).join("\n");
       const people: Person[] = [];
       const blank = (ref: string, name: string): Person => ({
-        ref, name, first_name: null, last_name: null, handles: [], role: null, sport: null, position: null,
+        ref, known_ref: null, name, first_name: null, last_name: null, handles: [], role: null, sport: null, position: null,
         level: null, location: null, organisation: null, category: null, stage: null, facts: null,
       });
 
@@ -126,6 +126,7 @@ export function mockExtractor(): Extractor {
           const verb = channel === "instagram" ? "DM" : channel === "email" ? "Email" : channel === "call" ? "Call" : "Follow up with";
           actions.push({
             title: p ? `${verb} ${p.name}` : (text.split(/[.\n]/)[0] || "Follow up").slice(0, 80),
+            existing_task: null,
             person_ref: p?.ref ?? null,
             channel,
             due_date: due?.date ?? null,

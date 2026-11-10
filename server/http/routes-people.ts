@@ -220,6 +220,10 @@ export function taskRoutes(ctx: Ctx) {
     if (closed) {
       enqueue(ctx.db, "deliver", { userId: user.id, event: "task.closed", objectId: task.id });
       ctx.worker.kick();
+    } else if (["title", "due_on", "due_time", "priority", "draft_message", "snooze_days"].some((k) => p[k as keyof typeof p] !== undefined)) {
+      // Edited or snoozed in Catch: Todoist and the calendar follow.
+      enqueue(ctx.db, "deliver", { userId: user.id, event: "task.updated", objectId: task.id });
+      ctx.worker.kick();
     }
     return c.json({ task: one(ctx.db, "SELECT * FROM tasks WHERE id = ?", task.id) });
   });

@@ -28,6 +28,12 @@ function todoistServer(opts: { dropDue?: boolean } = {}) {
       const t = tasks.get(url.pathname.split("/").pop()!);
       return t && !t.deleted ? { json: t } : { status: 404 };
     },
+    "POST /api/v1/tasks/[^/]+": (body, url) => {
+      const t = tasks.get(url.pathname.split("/").pop()!);
+      if (!t) return { status: 404 };
+      Object.assign(t, body, body.due_date ? { due: { date: body.due_date } } : {});
+      return { json: t };
+    },
     "POST /api/v1/tasks/[^/]+/close": (_b, url) => {
       tasks.get(url.pathname.split("/")[4])!.checked = true;
       return { status: 204 };
@@ -210,6 +216,25 @@ test("webhook: signed capture.processed with people and tasks; only failed integ
     const payload = JSON.parse(processed.body);
     assert.equal(payload.data.people[0].name, "F Six");
     assert.equal(payload.data.tasks[0].title, "Task F");
+  } finally {
+    await app.close();
+  }
+});
+
+test("Todoist: editing or snoozing a task in Catch updates the same Todoist task", async () => {
+  const td = todoistServer();
+  const { app, s } = await connectedApp(td.fetch);
+  try {
+    app.setExtraction(extraction({ people: [person({ ref: "p1", name: "G Seven" })], actions: [action({ title: "Task G", person_ref: "p1", due_date: "2026-12-01" })] }));
+    await s.capture({});
+    await settle(app);
+    const id = one<any>(app.ctx.db, "SELECT id FROM tasks")!.id;
+    await s.req(`/api/tasks/${id}`, { method: "PATCH", json: { title: "Task G, reworded", due_on: "2026-12-03" } });
+    await settle(app);
+    const sent = [...td.tasks.values()];
+    assert.equal(sent.length, 1, "updated in place, not re-created");
+    assert.equal(sent[0].content, "Task G, reworded");
+    assert.equal(sent[0].due_date, "2026-12-03");
   } finally {
     await app.close();
   }

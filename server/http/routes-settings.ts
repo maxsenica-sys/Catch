@@ -22,6 +22,7 @@ const MePatch = z.object({
     autoSend: z.boolean().optional(),
     holdToRecord: z.boolean().optional(),
     autoDedupe: z.boolean().optional(),
+    tasksOnCalendar: z.boolean().optional(),
   }).optional(),
 });
 

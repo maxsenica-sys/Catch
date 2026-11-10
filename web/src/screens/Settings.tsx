@@ -29,7 +29,7 @@ export function SettingsScreen({ state }: { state: AppState }) {
       <Duplicates state={state} />
       <Profile state={state} />
       <Categories state={state} />
-      <Integrations />
+      <Integrations state={state} />
       <Tokens />
       <section>
         <h2>Export</h2>
@@ -153,7 +153,25 @@ function Categories({ state }: { state: AppState }) {
   );
 }
 
-function Integrations() {
+/** Tasks as to-dos on their due day in Google Calendar. Switching it on sends the open ones now. */
+function TasksOnCalendar({ state }: { state: AppState }) {
+  const [on, setOn] = useState(state.me.user.settings.tasksOnCalendar !== false);
+  async function toggle(value: boolean) {
+    setOn(value);
+    await api("/api/me", { method: "PATCH", json: { settings: { tasksOnCalendar: value } } });
+    if (value) await api("/api/integrations/google_calendar/backfill", { method: "POST" });
+    await state.refresh();
+    toast(value ? "Tasks will show on your calendar" : "Tasks will stay off your calendar");
+  }
+  return (
+    <label class="toggle">
+      <input type="checkbox" checked={on} onChange={(e) => void toggle((e.target as HTMLInputElement).checked)} />
+      Put my tasks on the calendar too (☐ on their due day; ticked ones disappear)
+    </label>
+  );
+}
+
+function Integrations({ state }: { state: AppState }) {
   const [list, setList] = useState<IntegrationView[]>([]);
   const [feed, setFeed] = useState("");
   const [values, setValues] = useState<Record<string, Record<string, string>>>({});
@@ -191,6 +209,7 @@ function Integrations() {
           </div>
           <p class="muted small-text">{integ.description}</p>
           {integ.kind === "google_calendar" && !integ.enabled && <GoogleCalendarSteps />}
+          {integ.kind === "google_calendar" && integ.enabled && <TasksOnCalendar state={state} />}
           {integ.last_error && <p class="error-text">{integ.last_error}</p>}
           <div class="stack">
             {integ.fields.map((f) => (
@@ -206,7 +225,7 @@ function Integrations() {
             <div class="row-actions">
               <button class="primary small" onClick={() => void save(integ.kind, true)}>{integ.enabled ? "Save & test" : "Connect"}</button>
               {integ.enabled && <button class="small" onClick={() => void save(integ.kind, false)}>Turn off</button>}
-              {integ.enabled && integ.kind === "todoist" && (
+              {integ.enabled && (integ.kind === "todoist" || integ.kind === "google_calendar") && (
                 <button class="small" onClick={() => api(`/api/integrations/${integ.kind}/backfill`, { method: "POST" }).then((r) => toast(`Sending ${r.queued} open task(s)`))}>Send existing tasks</button>
               )}
             </div>

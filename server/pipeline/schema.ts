@@ -33,6 +33,7 @@ export const Handle = z.object({
 
 export const Person = z.object({
   ref: z.string().min(1),
+  known_ref: nullableString,
   name: z.string().min(1),
   first_name: nullableString,
   last_name: nullableString,
@@ -50,6 +51,7 @@ export const Person = z.object({
 
 export const Action = z.object({
   title: z.string().min(1),
+  existing_task: nullableString,
   person_ref: nullableString,
   channel: nullableEnum(CHANNELS),
   due_date: nullableString,
@@ -109,6 +111,7 @@ export const EXTRACTION_JSON_SCHEMA = obj({
     type: "array",
     items: obj({
       ref: { ...str, description: "Local id like p1, p2 — used by actions and appointments to point at this person." },
+      known_ref: { ...str, description: "If this is someone already on file (the k-ids listed under 'People already on file'), their k-id. Empty if new or unsure." },
       name: { ...str, description: "Best display name. A handle is acceptable if no real name is visible." },
       first_name: nstr,
       last_name: nstr,
@@ -135,6 +138,7 @@ export const EXTRACTION_JSON_SCHEMA = obj({
     type: "array",
     items: obj({
       title: { ...str, description: "Imperative, specific, under 80 characters. 'DM Jess about a trial session', not 'Follow up'." },
+      existing_task: { ...str, description: "If this is the same piece of work as an open task already on file (a t-id), that t-id — even when reworded or refined. Empty for genuinely new work." },
       person_ref: nstr,
       channel: nenum(CHANNELS),
       due_date: { ...nstr, description: "YYYY-MM-DD, only if the voice note, text or screenshot states or clearly implies a date. Otherwise an empty string — never guess." },

@@ -41,7 +41,7 @@ export function normaliseName(name: string): string {
 }
 
 export type Match =
-  | { kind: "existing"; contactId: string; via: "handle" | "name" }
+  | { kind: "existing"; contactId: string; via: "handle" | "name" | "model" }
   | { kind: "new"; possibleDuplicates: string[] };
 
 export function resolvePerson(db: DB, userId: string, person: Person): Match {

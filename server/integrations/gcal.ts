@@ -17,7 +17,8 @@
  * a bare date built in the script's zone. The script refuses to run when its
  * zone differs from the user's, because that moves every all-day event a day.
  */
-import type { Integration, IntegrationCall } from "./types.ts";
+import type { Integration, IntegrationCall, TaskPayload } from "./types.ts";
+import { parseJson } from "../db/db.ts";
 import { IntegrationError } from "./types.ts";
 import { localToUtc } from "../pipeline/dates.ts";
 
@@ -66,6 +67,44 @@ async function call(c: IntegrationCall, body: Record<string, unknown>): Promise<
   return out;
 }
 
+/** Tasks on the calendar too, unless switched off in Settings. On by default. */
+export function tasksOnCalendar(user: { settings: string }): boolean {
+  return parseJson<{ tasksOnCalendar?: boolean }>(user.settings, {}).tasksOnCalendar !== false;
+}
+
+/**
+ * A task as a calendar to-do: "☐ title" all-day on its due day, or a
+ * 30-minute block if it has a time. The ref carries the date, so moving a task
+ * is delete + create without the script handing back the old event.
+ */
+async function createTaskEvent(c: IntegrationCall, task: TaskPayload): Promise<string | null | undefined> {
+  if (!task.due_on) return undefined;
+  const description = [
+    task.channel ? `Reply via: ${task.channel}` : "",
+    task.draft_message ? `Draft: ${task.draft_message}` : "",
+    task.link ?? "",
+    task.contact ? `Who: ${task.contact.name}` : "",
+    `Open in Catch: ${task.app_url}`,
+  ].filter(Boolean).join("\n");
+  const body: Record<string, unknown> = {
+    action: "create",
+    ref: `task:${task.id}:${task.due_on}:${task.due_time ?? ""}`,
+    title: `☐ ${task.title}`,
+    location: "",
+    description,
+  };
+  if (task.due_time) {
+    const start = localToUtc(task.due_on, task.due_time, c.user.timezone);
+    body.start = start.toISOString();
+    body.end = new Date(start.getTime() + 30 * 60 * 1000).toISOString();
+  } else {
+    body.allDay = true;
+    body.date = task.due_on;
+  }
+  const out = await call(c, body);
+  return String(out.id ?? "") || null;
+}
+
 export const googleCalendar: Integration = {
   kind: "google_calendar",
   label: "Google Calendar (instant)",
@@ -85,6 +124,21 @@ export const googleCalendar: Integration = {
       );
     }
     return `Connected to "${out.calendar}". New sessions will appear there instantly.`;
+  },
+
+  async taskCreated(c, task) {
+    if (!tasksOnCalendar(c.user)) return undefined;
+    return createTaskEvent(c, task);
+  },
+
+  // Done or dismissed: off the calendar. It is a to-do list, not a diary.
+  async taskClosed(c, _task, externalId) {
+    if (externalId) await call(c, { action: "delete", id: externalId });
+  },
+
+  async taskUpdated(c, task, externalId) {
+    if (externalId) await call(c, { action: "delete", id: externalId });
+    return (await createTaskEvent(c, task)) ?? null;
   },
 
   async eventCreated(c, ev) {

@@ -18,7 +18,10 @@ function fakeGoogle(scriptTz = "Europe/Istanbul") {
     getName: () => "maxsenica@hotmail.com",
     createEvent: (title: string, start: Date, end: Date, opts: any) => add({ title, start, end, opts }),
     createAllDayEvent: (title: string, day: Date, opts: any) => add({ title, day, opts }),
-    getEventById: (id: string) => events.find((e) => e.id === id) ? { deleteEvent() {} } : null,
+    getEventById: (id: string) => {
+      const i = events.findIndex((e) => e.id === id);
+      return i === -1 ? null : { deleteEvent() { events.splice(i, 1); } };
+    },
   };
   function add(e: any) {
     const ev = { id: `g${events.length + 1}@google.com`, ...e };
@@ -99,14 +102,15 @@ test("appointments land in Google instantly: right instant, all-day on the right
     }));
     await s.capture({});
     await settle(app);
-    assert.equal(g.events.length, 2);
-    const timed = g.events.find((e) => e.start)!;
+    const bookings = () => g.events.filter((e) => !e.title.startsWith("☐"));
+    assert.equal(bookings().length, 2);
+    const timed = bookings().find((e) => e.start)!;
     assert.equal(timed.start!.toISOString(), "2026-12-05T06:00:00.000Z", "09:00 Istanbul");
     assert.equal(timed.end!.toISOString(), "2026-12-05T07:30:00.000Z");
     assert.equal(timed.opts.location, "Gabba courts");
     assert.match(timed.opts.description, /With Kai Brown/);
     assert.match(timed.opts.description, /instagram\.com\/kai\.hits/);
-    const day = g.events.find((e) => e.day)!;
+    const day = bookings().find((e) => e.day)!;
     assert.deepEqual([day.day!.getFullYear(), day.day!.getMonth() + 1, day.day!.getDate()], [2026, 12, 6], "built from its parts, not an instant");
 
     // The .ics feed no longer lists what Google already has.
@@ -119,7 +123,7 @@ test("appointments land in Google instantly: right instant, all-day on the right
     const { deliver } = await import("../server/integrations/index.ts");
     const userId = one<any>(app.ctx.db, "SELECT id FROM users")!.id;
     for (const e of all<any>(app.ctx.db, "SELECT id FROM events")) await deliver(app.ctx, { userId, event: "event.created", objectId: e.id });
-    assert.equal(g.events.length, 2, "no second copy in the calendar");
+    assert.equal(bookings().length, 2, "no second copy in the calendar");
   } finally {
     await app.close();
   }
@@ -134,6 +138,47 @@ test("a wrong key or a deployment that is not public is reported plainly, and no
     g.serveSignInPage();
     r = await s.json("/api/integrations/google_calendar/test", { method: "POST" });
     assert.match(r.error, /Who has access: Anyone/);
+  } finally {
+    await app.close();
+  }
+});
+
+test("tasks show as to-dos on their due day, move when snoozed, leave when done, and obey the switch", async () => {
+  const { app, s, g } = await connected();
+  try {
+    app.setExtraction(extraction({
+      people: [person({ ref: "p1", name: "Riley Palmer" })],
+      actions: [{ ...extraction({}).actions[0], title: "DM Riley to thank him", existing_task: null, person_ref: "p1", channel: "instagram", due_date: "2026-12-07", due_time: null, due_evidence: null, priority: 2, draft_message: "Thanks Riley!", category: null } as any],
+    }));
+    await s.capture({});
+    await settle(app);
+    const todos = () => g.events.filter((e) => e.title.startsWith("☐"));
+    assert.equal(todos().length, 1);
+    assert.equal(todos()[0].title, "☐ DM Riley to thank him");
+    assert.deepEqual([todos()[0].day!.getFullYear(), todos()[0].day!.getMonth() + 1, todos()[0].day!.getDate()], [2026, 12, 7]);
+    assert.match(todos()[0].opts.description, /Draft: Thanks Riley!/);
+
+    const taskId = one<any>(app.ctx.db, "SELECT id FROM tasks")!.id;
+    await s.req(`/api/tasks/${taskId}`, { method: "PATCH", json: { due_on: "2026-12-09" } });
+    await settle(app);
+    assert.equal(todos().length, 1, "moved, not copied");
+    assert.equal(todos()[0].day!.getDate(), 9);
+
+    await s.req(`/api/tasks/${taskId}`, { method: "PATCH", json: { status: "done" } });
+    await settle(app);
+    assert.equal(todos().length, 0, "ticked off: gone from the calendar");
+
+    // Switched off: new tasks stay off the calendar; switched back on: the backfill adds them.
+    await s.req("/api/me", { method: "PATCH", json: { settings: { tasksOnCalendar: false } } });
+    app.setExtraction(extraction({ people: [person({ ref: "p1", name: "Kai Brown" })] }));
+    await s.capture({});
+    await settle(app);
+    assert.equal(todos().length, 0);
+    await s.req("/api/me", { method: "PATCH", json: { settings: { tasksOnCalendar: true } } });
+    await s.req("/api/integrations/google_calendar/backfill", { method: "POST" });
+    await settle(app);
+    assert.equal(todos().length, 1);
+    assert.match(todos()[0].title, /Reach out to Kai Brown/);
   } finally {
     await app.close();
   }

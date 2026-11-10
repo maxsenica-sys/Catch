@@ -286,3 +286,69 @@ test("Instagram is a channel, not a category: shipped default migrated, customis
   const { DEFAULT_CATEGORIES } = await import("../server/categories.ts");
   assert.equal(DEFAULT_CATEGORIES.find((c) => c.key === "instagram")!.guidance, rows[0].guidance, "new accounts and migrated accounts agree");
 });
+
+test("the model sees people and open tasks on file: a refined request updates the existing task and person", async () => {
+  const app = makeApp();
+  try {
+    const s = await signup(app);
+    app.setExtraction(extraction({
+      people: [person({ ref: "p1", name: "Billy Hart", first_name: "Billy", handles: [{ platform: "instagram", handle: "billy.h", url: null }] })],
+      actions: [action({ title: "Build 4-6 week vertical jump program for Billy", person_ref: "p1" })],
+    }));
+    await s.capture({});
+    await settle(app);
+
+    app.setExtraction((input) => {
+      const billy = input.known!.find((k) => k.name === "Billy Hart")!;
+      assert.ok(billy, "Billy is listed as on file");
+      assert.equal(billy.tasks[0].title, "Build 4-6 week vertical jump program for Billy");
+      return extraction({
+        people: [person({ ref: "p1", name: "Billy", known_ref: billy.ref })],
+        actions: [
+          action({ title: "Design original arm-swing and vertical program for Billy", person_ref: "p1", existing_task: billy.tasks[0].ref, due_date: "2026-12-04" }),
+          action({ title: "Send Billy his program on Instagram", person_ref: "p1", channel: "instagram" }),
+        ],
+      });
+    });
+    const second = await s.capture({});
+    await settle(app);
+
+    assert.equal(one<any>(app.ctx.db, "SELECT COUNT(*) AS n FROM contacts")!.n, 1, "first name only, but the model placed him and the names agree");
+    assert.equal((await s.json(`/api/captures/${second.capture.id}`)).capture.status, "done", "no 'same person?' question needed");
+    const tasks = all<any>(app.ctx.db, "SELECT title, due_on FROM tasks ORDER BY created_at");
+    assert.equal(tasks.length, 2, JSON.stringify(tasks));
+    assert.equal(tasks[0].title, "Design original arm-swing and vertical program for Billy", "the existing task took the refined wording");
+    assert.equal(tasks[0].due_on, "2026-12-04");
+    assert.ok(all<any>(app.ctx.db, "SELECT payload FROM jobs WHERE type = 'deliver'").some((j) => j.payload.includes("task.updated")), "integrations are told");
+  } finally {
+    await app.close();
+  }
+});
+
+test("model matches are checked: a wrong name is not merged, and a task is never moved to another person", async () => {
+  const app = makeApp();
+  try {
+    const s = await signup(app);
+    app.setExtraction(extraction({
+      people: [person({ ref: "p1", name: "Billy Hart" })],
+      actions: [action({ title: "Build Billy's vertical jump program", person_ref: "p1" })],
+    }));
+    await s.capture({});
+    await settle(app);
+    app.setExtraction((input) => {
+      const billy = input.known![0];
+      return extraction({
+        people: [person({ ref: "p1", name: "Sam", known_ref: billy.ref })],
+        actions: [action({ title: "Send Sam the price list", person_ref: "p1", existing_task: billy.tasks[0].ref })],
+      });
+    });
+    await s.capture({});
+    await settle(app);
+    const people = all<any>(app.ctx.db, "SELECT name FROM contacts ORDER BY created_at").map((c) => c.name);
+    assert.deepEqual(people, ["Billy Hart", "Sam"]);
+    const tasks = all<any>(app.ctx.db, "SELECT title FROM tasks ORDER BY created_at").map((t) => t.title);
+    assert.deepEqual(tasks, ["Build Billy's vertical jump program", "Send Sam the price list"]);
+  } finally {
+    await app.close();
+  }
+});
