@@ -21,6 +21,7 @@ import type { Integration, IntegrationCall, TaskPayload } from "./types.ts";
 import { parseJson } from "../db/db.ts";
 import { IntegrationError } from "./types.ts";
 import { localToUtc, todayIn } from "../pipeline/dates.ts";
+import { CHANNEL_LABELS } from "./todoist.ts";
 import { all, type DB } from "../db/db.ts";
 import { enqueue } from "../jobs/queue.ts";
 import type { UserRow } from "../context.ts";
@@ -89,7 +90,7 @@ async function createTaskEvent(c: IntegrationCall, task: TaskPayload): Promise<s
   const day = overdue ? today : task.due_on;
   const since = new Date(`${task.due_on}T12:00:00Z`).toLocaleDateString("en-AU", { day: "numeric", month: "short", timeZone: "UTC" });
   const description = [
-    task.channel ? `Reply via: ${task.channel}` : "",
+    task.channel && CHANNEL_LABELS[task.channel] ? `Reply via: ${CHANNEL_LABELS[task.channel]}` : "",
     task.draft_message ? `Draft: ${task.draft_message}` : "",
     task.link ?? "",
     task.contact ? `Who: ${task.contact.name}` : "",

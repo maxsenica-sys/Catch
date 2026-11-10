@@ -159,6 +159,7 @@ test("tasks show as to-dos on their due day, move when snoozed, leave when done,
     assert.equal(todos()[0].title, "☐ DM Riley to thank him");
     assert.deepEqual([todos()[0].day!.getFullYear(), todos()[0].day!.getMonth() + 1, todos()[0].day!.getDate()], [2026, 12, 7]);
     assert.match(todos()[0].opts.description, /Draft: Thanks Riley!/);
+    assert.match(todos()[0].opts.description, /Reply via: Instagram/, "the proper name, not the code");
 
     const taskId = one<any>(app.ctx.db, "SELECT id FROM tasks")!.id;
     await s.req(`/api/tasks/${taskId}`, { method: "PATCH", json: { due_on: "2026-12-09" } });
