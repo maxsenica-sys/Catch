@@ -19,6 +19,7 @@ import { processCapture } from "./pipeline/process.ts";
 import { purgeOldJobs, runSweepJob } from "./pipeline/followups.ts";
 import { deliver, pollIntegrations } from "./integrations/index.ts";
 import { autoDedupeEnabled, removeDuplicates } from "./pipeline/duplicates.ts";
+import { rollOverdueTodos } from "./integrations/gcal.ts";
 import { icalendar, type FeedEvent } from "./feeds.ts";
 import { requireUser, type Env } from "./http/auth.ts";
 import { authRoutes } from "./http/routes-auth.ts";
@@ -54,6 +55,7 @@ export function createCatch(
       runSweepJob(ctx, String(job.payload.userId));
       const user = one<UserRow>(db, "SELECT * FROM users WHERE id = ?", String(job.payload.userId));
       if (user && autoDedupeEnabled(user)) await removeDuplicates(ctx, user);
+      if (user && rollOverdueTodos(db, user) > 0) ctx.worker.kick();
     },
     poll_integrations: (job) => pollIntegrations(ctx, String(job.payload.userId)),
     housekeeping: async () => purgeOldJobs(db),

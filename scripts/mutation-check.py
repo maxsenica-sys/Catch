@@ -6,6 +6,9 @@ Each case restores the file afterwards, even on failure.
 """
 import subprocess, sys
 cases = [
+  ("overdue to-do placed on its past day", "server/integrations/gcal.ts", "const day = overdue ? today : task.due_on;", "const day = task.due_on;", "test/gcal.test.ts"),
+  ("overdue to-dos never roll forward", "server/app.ts", "if (user && rollOverdueTodos(db, user) > 0) ctx.worker.kick();", "", "test/gcal.test.ts"),
+  ("roll moves a to-do every sweep", "server/integrations/gcal.ts", ").filter((r) => todayIn(user.timezone, new Date(r.placed)) < today);", ");", "test/gcal.test.ts"),
   ("model person match trusted without name check", "server/pipeline/process.ts", "if (match.kind === \"new\" && hinted && firstNameAgrees(db, hinted, person)) {", "if (match.kind === \"new\" && hinted) {", "test/pipeline.test.ts"),
   ("model task match crosses people", "server/pipeline/process.ts", "const twin = target && (!contactId || !target.contact_id || target.contact_id === contactId)", "const twin = target", "test/pipeline.test.ts"),
   ("model task match ignored", "server/pipeline/process.ts", "const hintedTaskId = action.existing_task ? known.tasks.get(action.existing_task) : undefined;", "const hintedTaskId = undefined as string | undefined;", "test/pipeline.test.ts"),

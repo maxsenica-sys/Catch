@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import vm from "node:vm";
 import { extraction, makeApp, person, settle, signup } from "./helpers.ts";
 import { all, one, run } from "../server/db/db.ts";
+import { enqueue } from "../server/jobs/queue.ts";
 
 const URL_ = "https://script.google.com/macros/s/TEST/exec";
 
@@ -23,8 +24,9 @@ function fakeGoogle(scriptTz = "Europe/Istanbul") {
       return i === -1 ? null : { deleteEvent() { events.splice(i, 1); } };
     },
   };
+  let made = 0;
   function add(e: any) {
-    const ev = { id: `g${events.length + 1}@google.com`, ...e };
+    const ev = { id: `g${++made}@google.com`, ...e };
     events.push(ev);
     return { getId: () => ev.id };
   }
@@ -179,6 +181,47 @@ test("tasks show as to-dos on their due day, move when snoozed, leave when done,
     await settle(app);
     assert.equal(todos().length, 1);
     assert.match(todos()[0].title, /Reach out to Kai Brown/);
+  } finally {
+    await app.close();
+  }
+});
+
+test("overdue to-dos go on today, say so, and move forward once a day until ticked", async () => {
+  const { app, s, g } = await connected();
+  try {
+    const { todayIn, addDays } = await import("../server/pipeline/dates.ts");
+    const today = todayIn("Europe/Istanbul");
+    app.setExtraction(extraction({
+      people: [person({ ref: "p1", name: "Billy Hart" })],
+      actions: [{ title: "Send Billy his program", existing_task: null, person_ref: "p1", channel: "instagram", due_date: addDays(today, -3), due_time: null, due_evidence: null, priority: 2, draft_message: null, category: null } as any],
+    }));
+    await s.capture({});
+    await settle(app);
+    const todos = () => g.events.filter((e) => e.title.startsWith("☐"));
+    // decideDue clamps a past stated date to today; make it genuinely overdue, as tasks become after their day passes.
+    const taskId = one<any>(app.ctx.db, "SELECT id FROM tasks")!.id;
+    run(app.ctx.db, "UPDATE tasks SET due_on = ? WHERE id = ?", addDays(today, -3), taskId);
+    run(app.ctx.db, "DELETE FROM deliveries WHERE integration = 'google_calendar'");
+    for (const e of [...todos()]) g.events.splice(g.events.indexOf(e), 1);
+    await s.req("/api/integrations/google_calendar/backfill", { method: "POST" });
+    await settle(app);
+    assert.equal(todos().length, 1);
+    const day = todos()[0].day!;
+    assert.equal(`${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`, today, "placed on today, not on its past due day");
+    assert.match(todos()[0].title, /\(overdue since /);
+
+    const user = one<any>(app.ctx.db, "SELECT * FROM users")!;
+    const placedId = () => one<any>(app.ctx.db, "SELECT external_id FROM deliveries WHERE integration = 'google_calendar' AND object_id = ?", taskId)!.external_id;
+    const first = placedId();
+    enqueue(app.ctx.db, "followups_sweep", { userId: user.id });
+    await settle(app);
+    assert.equal(placedId(), first, "already on today: not moved again");
+
+    run(app.ctx.db, "UPDATE deliveries SET updated_at = ? WHERE integration = 'google_calendar'", new Date(Date.now() - 2 * 86_400_000).toISOString());
+    enqueue(app.ctx.db, "followups_sweep", { userId: user.id });
+    await settle(app);
+    assert.notEqual(placedId(), first, "yesterday's to-do was moved onto today");
+    assert.equal(todos().length, 1, "moved, not copied");
   } finally {
     await app.close();
   }

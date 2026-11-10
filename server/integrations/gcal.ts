@@ -20,7 +20,10 @@
 import type { Integration, IntegrationCall, TaskPayload } from "./types.ts";
 import { parseJson } from "../db/db.ts";
 import { IntegrationError } from "./types.ts";
-import { localToUtc } from "../pipeline/dates.ts";
+import { localToUtc, todayIn } from "../pipeline/dates.ts";
+import { all, type DB } from "../db/db.ts";
+import { enqueue } from "../jobs/queue.ts";
+import type { UserRow } from "../context.ts";
 
 export interface EventPayload {
   id: string;
@@ -79,6 +82,12 @@ export function tasksOnCalendar(user: { settings: string }): boolean {
  */
 async function createTaskEvent(c: IntegrationCall, task: TaskPayload): Promise<string | null | undefined> {
   if (!task.due_on) return undefined;
+  // An overdue to-do on a past day is invisible. It goes on today, says so, and
+  // rolls forward each day until ticked (rollOverdueTodos).
+  const today = todayIn(c.user.timezone);
+  const overdue = task.due_on < today;
+  const day = overdue ? today : task.due_on;
+  const since = new Date(`${task.due_on}T12:00:00Z`).toLocaleDateString("en-AU", { day: "numeric", month: "short", timeZone: "UTC" });
   const description = [
     task.channel ? `Reply via: ${task.channel}` : "",
     task.draft_message ? `Draft: ${task.draft_message}` : "",
@@ -88,21 +97,41 @@ async function createTaskEvent(c: IntegrationCall, task: TaskPayload): Promise<s
   ].filter(Boolean).join("\n");
   const body: Record<string, unknown> = {
     action: "create",
-    ref: `task:${task.id}:${task.due_on}:${task.due_time ?? ""}`,
-    title: `☐ ${task.title}`,
+    ref: `task:${task.id}:${day}:${overdue ? "" : task.due_time ?? ""}`,
+    title: `☐ ${task.title}${overdue ? ` (overdue since ${since})` : ""}`,
     location: "",
     description,
   };
-  if (task.due_time) {
+  if (task.due_time && !overdue) {
     const start = localToUtc(task.due_on, task.due_time, c.user.timezone);
     body.start = start.toISOString();
     body.end = new Date(start.getTime() + 30 * 60 * 1000).toISOString();
   } else {
     body.allDay = true;
-    body.date = task.due_on;
+    body.date = day;
   }
   const out = await call(c, body);
   return String(out.id ?? "") || null;
+}
+
+/**
+ * Move yesterday's unticked to-dos onto today. Runs with the 15-minute sweep;
+ * a to-do already placed today (in the user's zone) is left alone, so each
+ * one moves at most once a day. Only the calendar is touched.
+ */
+export function rollOverdueTodos(db: DB, user: UserRow): number {
+  const today = todayIn(user.timezone);
+  const rows = all<{ id: string; placed: string }>(
+    db,
+    `SELECT t.id, d.updated_at AS placed FROM tasks t
+     JOIN deliveries d ON d.object_id = t.id AND d.object_type = 'task' AND d.integration = 'google_calendar' AND d.status = 'sent'
+     WHERE t.user_id = ? AND t.status = 'open' AND t.due_on < ?`,
+    user.id, today,
+  ).filter((r) => todayIn(user.timezone, new Date(r.placed)) < today);
+  for (const r of rows) {
+    enqueue(db, "deliver", { userId: user.id, event: "task.updated", objectId: r.id, skip: ["todoist", "webhook"] }, { dedupeKey: `roll:${r.id}:${today}` });
+  }
+  return rows.length;
 }
 
 export const googleCalendar: Integration = {
